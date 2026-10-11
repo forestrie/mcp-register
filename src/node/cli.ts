@@ -97,15 +97,28 @@ export async function main(argv: readonly string[]): Promise<number> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Wait for the transport to close or a signal, then close the server so
-  // the transport lets go of stdin and the event loop can drain: a client
-  // that sends SIGTERM without closing the pipe must still see us exit.
-  // The wrapper sets the exit code; nothing here calls process.exit.
-  await new Promise<void>((resolve) => {
-    transport.onclose = () => resolve();
-    process.once("SIGINT", () => resolve());
-    process.once("SIGTERM", () => resolve());
+  // Wait for the client to go away (stdin ends, the transport closes) or
+  // for a signal. `server.server.onclose`, not `transport.onclose`: connect()
+  // installed the latter and overwriting it would skip the SDK's own
+  // cleanup. Listeners are removed afterwards so nothing here keeps the
+  // event loop alive.
+  let finish: () => void = () => {};
+  const ended = new Promise<void>((resolve) => {
+    finish = resolve;
   });
+  const onSignal = (): void => finish();
+  server.server.onclose = finish;
+  process.stdin.once("end", finish);
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  await ended;
+  process.off("SIGINT", onSignal);
+  process.off("SIGTERM", onSignal);
+  process.stdin.off("end", finish);
+
+  // A signal leaves the transport open, and its stdin listener keeps the
+  // process alive for as long as the client holds the pipe. Close it so the
+  // event loop drains; the wrapper sets the exit code, never process.exit.
   await server.close();
   return 0;
 }
