@@ -1,0 +1,15 @@
+{
+  "url": "https://canopy.example.test/register/3f1c2d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f/grants",
+  "method": "POST",
+  "status": 402,
+  "headers": {
+    "x-payment-required": "eyJ4NDAyVmVyc2lvbiI6MiwiYWNjZXB0cyI6W3sic2NoZW1lIjoiZXhhY3QiLCJuZXR3b3JrIjoiZWlwMTU1Ojg0NTMyIiwiYW1vdW50IjoiODAwMCIsImFzc2V0IjoiMHgwMzZDYkQ1Mzg0MmM1NDI2NjM0ZTc5Mjk1NDFlQzIzMThmM2RDRjdlIiwicGF5VG8iOiIweDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwZmVlMDEiLCJtYXhUaW1lb3V0U2Vjb25kcyI6MzAwLCJleHRyYSI6eyJuYW1lIjoiVVNEQyIsInZlcnNpb24iOiIyIn19XSwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9jYW5vcHkuZXhhbXBsZS50ZXN0L3JlZ2lzdGVyLzNmMWMyZDRlLTVhNmItNGM3ZC04ZTlmLTBhMWIyYzNkNGU1Zi9ncmFudHMiLCJkZXNjcmlwdGlvbiI6IlNDUkFQSSBzdGF0ZW1lbnQgcmVnaXN0cmF0aW9uIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9jb3NlIn19",
+    "content-type": "application/problem+cbor",
+    "content-length": "137"
+  },
+  "contentType": "application/problem+cbor",
+  "bodyFile": "register-grant-402-refused.body",
+  "bodyBytes": 137,
+  "note": "An X-PAYMENT the facilitator refused: the same challenge, canopy's reason in detail.",
+  "bodySha256": "0893261316f5109044cc6ad0888089e47d55897ccdb2583f4ce44f3f218ff0c7"
+}

@@ -1,0 +1,14 @@
+{
+  "url": "https://canopy.example.test/register/3f1c2d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f/grants",
+  "method": "POST",
+  "status": 409,
+  "headers": {
+    "content-type": "application/problem+cbor",
+    "content-length": "119"
+  },
+  "contentType": "application/problem+cbor",
+  "bodyFile": "register-grant-409.body",
+  "bodyBytes": 119,
+  "note": "univocity refused the creation grant: the child log id is taken.",
+  "bodySha256": "c4cb8beb44a9e17516c830cadcf28ec682d92215fe096e63f7a08c475dd4c27f"
+}

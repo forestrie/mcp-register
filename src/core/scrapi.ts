@@ -135,6 +135,35 @@ export function readRegisterResponse(
   return { kind: "problem", problem: readProblem(res) };
 }
 
+export type RegisterGrantOutcome =
+  | RegisterOutcome
+  | {
+      kind: "payment_required";
+      /** The raw `X-PAYMENT-REQUIRED` header (base64 JSON), undecoded. */
+      paymentRequiredHeader: string;
+      problem: Problem;
+    };
+
+/**
+ * canopy's answer to `POST /register/{R}/grants`: 303 to the grant's status
+ * URL, or 402 with an `X-PAYMENT-REQUIRED` challenge when the parent grant
+ * makes this child payment-gated (and again, with canopy's reason, when a
+ * presented `X-PAYMENT` is refused). A 402 without the header is a problem.
+ */
+export function readRegisterGrantResponse(
+  res: ResponseView,
+  origin?: string,
+): RegisterGrantOutcome {
+  const header = res.headers["x-payment-required"];
+  if (res.status === 402 && header)
+    return {
+      kind: "payment_required",
+      paymentRequiredHeader: header,
+      problem: readProblem(res),
+    };
+  return readRegisterResponse(res, origin);
+}
+
 const RECEIPT_PATH = /\/(\d+)\/entries\/([0-9a-f]{32})\/receipt$/;
 
 export type StatusOutcome =

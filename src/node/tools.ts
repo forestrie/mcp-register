@@ -38,8 +38,12 @@ import type { Es256Signer } from "../core/signer.js";
 import { StatementError, signStatement } from "../core/statement.js";
 import { delegateSealing } from "../net/delegate.js";
 import { getRegistrationStatus, postStatement } from "../net/write.js";
+import { PaymentError } from "../core/x402.js";
+import type { GrantStore } from "./grant-store.js";
+import type { SpendLedger } from "./ledger.js";
+import { PayerError, type PayerBackend } from "./payer.js";
 import { InputError, resolveBytes, type BytesInput } from "./resolve-input.js";
-import { KeyFileError } from "./signer-file.js";
+import { KeyFileError, publicKeyPem, type KeyRole } from "./signer-file.js";
 import {
   RegistrationStore,
   StoreError,
@@ -62,9 +66,19 @@ export interface ResolvedDeps {
   signer: (options?: {
     create?: boolean;
   }) => Promise<Es256Signer & { created?: boolean }>;
-  /** Paths no `{path}` input may read: the key file and the server's home. */
+  /** The requester's authority key, which signs child grants: a separate
+   *  key, opened the same way as the log key. */
+  authoritySigner: (options?: {
+    create?: boolean;
+  }) => Promise<Es256Signer & { created?: boolean }>;
+  /** The configured payer, or `undefined` for relay mode. Throws
+   *  `PayerError` when one is configured but cannot be opened. */
+  payer: () => PayerBackend | undefined;
+  /** Paths no `{path}` input may read: the key files and the server's home. */
   protectedPaths: string[];
   store: RegistrationStore;
+  grants: GrantStore;
+  ledger: SpendLedger;
   sleep?: (ms: number) => Promise<void>;
 }
 
@@ -91,14 +105,14 @@ function bytesInput(what: string) {
   return BytesInputSchema.describe(`${what} — ${BYTES_SHAPES}`);
 }
 
-const GrantSchema = z
+export const GrantSchema = z
   .string()
   .min(1)
   .describe(
     "the Forestrie-Grant: base64 (standard or URL-safe) of the completed grant, or a path to a file holding it as raw bytes or base64 text; falls back to FORESTRIE_GRANT",
   );
 
-const BaseUrlSchema = z
+export const BaseUrlSchema = z
   .string()
   .min(1)
   .describe(
@@ -110,7 +124,20 @@ const ContentHashSchema = z
   .regex(/^[0-9a-f]{64}$/)
   .describe("the content hash register_statement returned (64 lowercase hex)");
 
-export const getLogKeyInputShape = {};
+const KeyRoleSchema = z
+  .enum(["log", "authority"])
+  .optional()
+  .describe(
+    'which key: "log" (default), the key that owns your data log and signs statements; or "authority", the requester\'s key that owns an authority log and signs the child grants issue_grant makes',
+  );
+
+export const getLogKeyInputShape = {
+  which: KeyRoleSchema,
+};
+
+function signerFor(deps: ResolvedDeps, role: KeyRole) {
+  return role === "authority" ? deps.authoritySigner : deps.signer;
+}
 
 export const registerStatementInputShape = {
   payload: bytesInput("the payload to sign and register, up to 4 MiB"),
@@ -175,9 +202,15 @@ export const delegateSealingInputShape = {
     .describe(
       "how long the delegation lasts; defaults to the coordinator's suggestion",
     ),
+  as: z
+    .enum(["log", "authority"])
+    .optional()
+    .describe(
+      'which key owns the log: "log" (default) for your data log, under the grant you register statements with; "authority" for your authority log, under its creation grant (FORESTRIE_AUTHORITY_GRANT), so the child grants register_grant sequences there get sealed',
+    ),
 };
 
-type Args<S extends Record<string, z.ZodType>> = {
+export type Args<S extends Record<string, z.ZodType>> = {
   [K in keyof S]: z.infer<S[K]>;
 };
 
@@ -189,7 +222,7 @@ export type ToolResult = {
   isError: false;
 };
 
-function ok(
+export function ok(
   text: string,
   structuredContent: Record<string, unknown>,
 ): ToolResult {
@@ -200,7 +233,7 @@ function ok(
   };
 }
 
-function problemResult(
+export function problemResult(
   toolName: ToolName,
   problem: Record<string, unknown>,
 ): ToolResult {
@@ -213,7 +246,7 @@ function problemResult(
   return ok(`${toolName}: problem (${code}): ${message}`, { problem });
 }
 
-function httpProblemValue(
+export function httpProblemValue(
   message: string,
   p: Problem,
 ): Record<string, unknown> {
@@ -230,7 +263,7 @@ function httpProblemValue(
   };
 }
 
-function httpProblem(
+export function httpProblem(
   toolName: ToolName,
   message: string,
   p: Problem,
@@ -238,7 +271,7 @@ function httpProblem(
   return problemResult(toolName, httpProblemValue(message, p));
 }
 
-function missingInput(
+export function missingInput(
   toolName: ToolName,
   field: string,
   envVar: string,
@@ -249,7 +282,7 @@ function missingInput(
   });
 }
 
-async function guardHandler(
+export async function guardHandler(
   toolName: ToolName,
   run: () => Promise<ToolResult>,
 ): Promise<ToolResult> {
@@ -262,7 +295,9 @@ async function guardHandler(
       err instanceof StoreError ||
       err instanceof KeyFileError ||
       err instanceof StatementError ||
-      err instanceof NetError
+      err instanceof NetError ||
+      err instanceof PaymentError ||
+      err instanceof PayerError
     ) {
       return problemResult(toolName, { code: err.code, message: err.message });
     }
@@ -286,7 +321,7 @@ async function guardHandler(
 
 /* -------------------------------- grant --------------------------------- */
 
-interface ResolvedGrant {
+export interface ResolvedGrant {
   b64: string;
   view: GrantView;
 }
@@ -319,18 +354,23 @@ function assertReadable(path: string, what: string, deps: ResolvedDeps): void {
 }
 
 /** `resolveBytes`, with `{path}` inputs kept off the key and the home. */
-function readBytes(input: BytesInput, what: string, deps: ResolvedDeps) {
+export function readBytes(
+  input: BytesInput,
+  what: string,
+  deps: ResolvedDeps,
+) {
   if ("path" in input) assertReadable(input.path, `${what}.path`, deps);
   return resolveBytes(input, what);
 }
 
 /** A grant from a tool argument or FORESTRIE_GRANT: inline base64, or a path
  *  to a file of raw COSE bytes or of base64 text. */
-function resolveGrant(
+export function resolveGrant(
   explicit: string | undefined,
   deps: ResolvedDeps,
+  envVar = "FORESTRIE_GRANT",
 ): ResolvedGrant | undefined {
-  const raw = explicit ?? deps.env["FORESTRIE_GRANT"];
+  const raw = explicit ?? deps.env[envVar];
   if (raw === undefined || raw.trim() === "") return undefined;
   let bytes: Uint8Array;
   if (existsSync(raw)) {
@@ -360,7 +400,7 @@ function resolveGrant(
   return { b64: bytesToBase64(bytes), view: inspectGrant(bytes) };
 }
 
-function decodeBase64Text(text: string, what: string): Uint8Array {
+export function decodeBase64Text(text: string, what: string): Uint8Array {
   const trimmed = text.trim();
   if (!/^[A-Za-z0-9+/_-]+={0,2}$/.test(trimmed))
     throw new InputError(
@@ -374,25 +414,32 @@ function decodeBase64Text(text: string, what: string): Uint8Array {
 /* ----------------------------- get_log_key ------------------------------ */
 
 export function makeGetLogKeyTool(deps: ResolvedDeps) {
-  // `created` is reported once, by the first call after this server made
-  // the key; later calls see an existing key.
-  let announced = false;
-  return () =>
+  // `created` is reported once per key, by the first call after this server
+  // made it; later calls see an existing key.
+  const announced = new Set<KeyRole>();
+  return (args: Partial<Args<typeof getLogKeyInputShape>> = {}) =>
     guardHandler("get_log_key", async () => {
-      const signer = await deps.signer();
+      const role: KeyRole = args.which ?? "log";
+      const signer = await signerFor(deps, role)();
       const xy = await signer.publicKeyXY();
-      const created = signer.created === true && !announced;
-      announced = true;
+      const created = signer.created === true && !announced.has(role);
+      announced.add(role);
       const structured = {
+        which: role,
         alg: "ES256",
         publicKeyXYHex: toHex(xy),
         publicKeyXYBase64: bytesToBase64(xy),
-        statementKidHex: toHex(xy.slice(0, 32)),
+        publicKeyPem: publicKeyPem(xy),
+        ...(role === "log" ? { statementKidHex: toHex(xy.slice(0, 32)) } : {}),
         backend: signer.description,
         created,
       };
+      const use =
+        role === "log"
+          ? "A grant must name this key in its grantData."
+          : "The owner of the root above you names this key when it creates your authority log (forestrie-cli create-log --auth-log --child-payment-required --signer-pem <publicKeyPem saved to a file>); issue_grant then signs child grants with it.";
       return ok(
-        `log key (ES256) x‖y ${structured.publicKeyXYHex}${created ? " — newly created by this server" : ""}; held in ${signer.description}. A grant must name this key in its grantData.`,
+        `${role} key (ES256) x‖y ${structured.publicKeyXYHex}${created ? " — newly created by this server" : ""}; held in ${signer.description}. ${use}`,
         structured,
       );
     });
@@ -715,11 +762,13 @@ export function makeDelegateSealingTool(deps: ResolvedDeps) {
         throw new InputError(
           `knownSealerKey must decode to 64 bytes x‖y (got ${knownSealerKeyXY.length})`,
         );
-      const grant = resolveGrant(args.grant, deps);
-      if (!grant)
-        return missingInput("delegate_sealing", "grant", "FORESTRIE_GRANT");
+      const role: KeyRole = args.as ?? "log";
+      const grantEnv =
+        role === "authority" ? "FORESTRIE_AUTHORITY_GRANT" : "FORESTRIE_GRANT";
+      const grant = resolveGrant(args.grant, deps, grantEnv);
+      if (!grant) return missingInput("delegate_sealing", "grant", grantEnv);
 
-      const signer = await deps.signer();
+      const signer = await signerFor(deps, role)();
       const xy = await signer.publicKeyXY();
       if (
         grant.view.grantData.length !== 64 ||
@@ -727,7 +776,7 @@ export function makeDelegateSealingTool(deps: ResolvedDeps) {
       )
         return problemResult("delegate_sealing", {
           code: "grant_unusable",
-          message: `the grant's grantData does not name this server's log key, so this key does not own log ${grant.view.logId} and cannot delegate its sealing`,
+          message: `the grant's grantData does not name this server's ${role} key, so this key does not own log ${grant.view.logId} and cannot delegate its sealing`,
         });
 
       const outcome = await delegateSealing(

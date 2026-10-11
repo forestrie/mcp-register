@@ -117,7 +117,48 @@ describe("tools/list", () => {
   });
 });
 
+describe("payment surface", () => {
+  it("takes no cap, payer or spending setting as input: the caps are configuration only", async () => {
+    const { tools } = await client.listTools();
+    const all = JSON.stringify(tools.map((t) => t.inputSchema));
+    for (const word of [
+      "maxPerCall",
+      "maxPerDay",
+      "allowMainnet",
+      "payer",
+      "payTo",
+      "network",
+      "asset",
+      "MCP_REGISTER_PAY",
+    ])
+      expect(all, word).not.toContain(word);
+    // Not vacuous: register_grant's relay input is there.
+    const rg = tools.find((t) => t.name === "register_grant")!;
+    expect(Object.keys(rg.inputSchema.properties ?? {})).toEqual(
+      expect.arrayContaining(["logId", "payment"]),
+    );
+  });
+});
+
 describe("prompts", () => {
+  it("issue-and-pay walks issue_grant then register_grant, and names the caps and relay mode", async () => {
+    const { messages } = await client.getPrompt({
+      name: "issue-and-pay",
+      arguments: { purpose: "a nightly build log" },
+    });
+    const text = (messages[0]?.content as { text: string }).text;
+    expect(text).toContain("a nightly build log");
+    const order = ["get_log_key", "issue_grant", "register_grant"].map(
+      (name) => text.indexOf(`Call ${name}`),
+    );
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(text).toMatch(/maxHeight/);
+    expect(text).toMatch(/cap_/);
+    expect(text).toMatch(/relay mode/);
+    expect(text).toMatch(/Forestrie runs no grant issuer/);
+  });
+
   it("prompts/list is exactly PROMPT_NAMES, in order", async () => {
     const { prompts } = await client.listPrompts();
     expect(prompts.map((p) => p.name)).toEqual([...PROMPT_NAMES]);
