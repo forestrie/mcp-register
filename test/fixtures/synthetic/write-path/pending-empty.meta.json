@@ -1,0 +1,14 @@
+{
+  "url": "https://coordinator.example.test/api/logs/7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d/pending-delegation",
+  "method": "GET",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "content-length": "26"
+  },
+  "contentType": "application/json",
+  "bodyFile": "pending-empty.body",
+  "bodyBytes": 26,
+  "note": "The coordinator never learned the log's root: no standing entry.",
+  "bodySha256": "2b1f3e3f74e37dc779b5e86b08e9dde1782bf49d4ed0c3c3846f1d5697658df0"
+}

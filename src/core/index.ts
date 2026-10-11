@@ -8,7 +8,6 @@
  * `pnpm run check:browser-safe` bundles this file for `platform: "browser"`
  * and fails on any edge to a node builtin.
  *
- * Currently: version constants only. Tools arrive in the next change.
  */
 
 export {
@@ -16,3 +15,40 @@ export {
   VERIFIER_VERSION,
   RESOLVE_VERSION,
 } from "./version.js";
+export type { Es256Signer } from "./signer.js";
+export { MAX_STATEMENT_BYTES } from "./limits.js";
+export { base64ToBytes, bytesToBase64 } from "./base64.js";
+export {
+  GrantError,
+  inspectGrant,
+  prepareGrantProblems,
+  statementGrantProblems,
+} from "./grant.js";
+export type { GrantView } from "./grant.js";
+export { StatementError, signStatement } from "./statement.js";
+export type { SignStatementInput, SignedStatement } from "./statement.js";
+export {
+  readProblem,
+  readReceiptResponse,
+  readRegisterResponse,
+  readStatusResponse,
+} from "./scrapi.js";
+export type {
+  Problem,
+  ReceiptOutcome,
+  RegisterOutcome,
+  ResponseView,
+  StatusOutcome,
+} from "./scrapi.js";
+export {
+  DEFAULT_MMR_END,
+  DelegationError,
+  buildCertificateSubmission,
+  checkVoucher,
+  findStandingEntry,
+} from "./delegation.js";
+export type {
+  CertificateSubmission,
+  PendingDelegationEntry,
+  StandingEntry,
+} from "./delegation.js";

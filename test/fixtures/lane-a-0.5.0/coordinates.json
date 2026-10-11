@@ -1,0 +1,14 @@
+{
+  "baseUrl": "https://api-a.forest-2.forestrie.dev",
+  "bootstrapLogId": "e22c8d55-3f88-b2b5-f225-5d2c2441bcdd",
+  "publicationsLogId": "da6f297c-4a0c-4c9a-b2ae-e701e558721d",
+  "contentHashSha256": "0d7e2978ab9839c23af68bd949c7e15de6f2f75aae5baf13e602c485e3c0354e",
+  "entryId": "a0caa672b7030b000000000000000001",
+  "massifHeight": 14,
+  "receiptUrl": "https://api-a.forest-2.forestrie.dev/logs/e22c8d55-3f88-b2b5-f225-5d2c2441bcdd/da6f297c-4a0c-4c9a-b2ae-e701e558721d/14/entries/a0caa672b7030b000000000000000001/receipt",
+  "chainId": 84532,
+  "univocity": "0xe22c8d553f88b2b5f2255d2c2441bcdd0d50cd58",
+  "logStateBlock": 47169412,
+  "logStateSize": 3,
+  "verifierVersion": "0.5.0"
+}

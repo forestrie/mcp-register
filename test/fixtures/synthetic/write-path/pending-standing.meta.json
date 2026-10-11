@@ -1,0 +1,14 @@
+{
+  "url": "https://coordinator.example.test/api/logs/7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d/pending-delegation",
+  "method": "GET",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "content-length": "456"
+  },
+  "contentType": "application/json",
+  "bodyFile": "pending-standing.body",
+  "bodyBytes": 456,
+  "note": "A standing delegate key, vouched for by the registrar key.",
+  "bodySha256": "9f63cf12d5b5da2aea71ccee47be29080494237d5f59af6c3e437053329bd074"
+}

@@ -1,0 +1,23 @@
+{
+  "url": "https://api-a.forest-2.forestrie.dev/.well-known/scitt-configuration",
+  "method": "GET",
+  "requestedAt": "2026-09-22T19:58:31Z",
+  "status": 200,
+  "headers": {
+    "date": "Tue, 22 Sep 2026 19:58:31 GMT",
+    "content-type": "application/json",
+    "content-length": "552",
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "Content-Type, Authorization, X-PAYMENT, X-Ops-Authorization",
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+    "access-control-expose-headers": "X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE",
+    "report-to": "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=E2Olmy0Mm6oQSQVf1Pk2tabE84%2FQ%2F%2FIVP2eKZ7l23t2dA35Ir5TJd83lqegTGNOLtJcRhFZ2h9R1SHWwyIH2rdS7fsUNFNU15YuKmAhJSSxEvccTDdXKks3p%2Ft9FbyZJNM2eZyXyqEe97IGqnIsI6AGEqbiB6vGihKBj\"}]}",
+    "nel": "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}",
+    "server": "cloudflare",
+    "cf-ray": "a3f3e28998b5ae9a-LHR",
+    "alt-svc": "h3=\":443\"; ma=86400"
+  },
+  "bodySha256": "10ad04ae5bc8bbac551fe871987d7f80bc22a4fcb9ce4fe18256eef1dfed08a8",
+  "bodyBytes": 552,
+  "contentType": "application/json"
+}
