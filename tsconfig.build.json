@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    // Emit for Node's real ESM resolver, not the bundler's. This is what makes
+    // `tsc -p tsconfig.build.json` FAIL on any relative import missing a `.js`
+    // extension — a failure that would otherwise only appear after publish.
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "test", "tools", "scripts"]
+}

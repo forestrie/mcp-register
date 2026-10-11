@@ -1,0 +1,9 @@
+# mcp-register: node + pnpm. No Bun anywhere — the package must run under
+# plain `npx`, like the verifier.
+#
+# node/pnpm match the estate's CI pins so `mise install` locally and
+# jdx/mise-action in .github/workflows/ci.yml agree by construction.
+
+[tools]
+node = "22.14.0"
+pnpm = "10.6.5"

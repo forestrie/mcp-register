@@ -1,0 +1,31 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "dev.forestrie/register",
+  "title": "Sign and register statements on a Forestrie log",
+  "description": "Sign a statement, register it on a Forestrie log under your grant, and verify its receipt",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/forestrie/mcp-register",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/forestrie/mcp-register#readme",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@forestrie/mcp-register",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeHint": "npx",
+      "runtimeArguments": [
+        {
+          "type": "positional",
+          "value": "-y",
+          "isRequired": true
+        }
+      ]
+    }
+  ]
+}

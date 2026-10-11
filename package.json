@@ -1,0 +1,109 @@
+{
+  "name": "@forestrie/mcp-register",
+  "version": "0.1.0",
+  "mcpName": "dev.forestrie/register",
+  "license": "MIT",
+  "type": "module",
+  "description": "Sign and register a statement on a Forestrie transparency log under a grant you hold, then verify its receipt",
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "scitt",
+    "cose",
+    "receipt",
+    "transparency-log",
+    "forestrie",
+    "register",
+    "signed-statement",
+    "provenance",
+    "transparency",
+    "audit-log"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/forestrie/mcp-register.git"
+  },
+  "homepage": "https://github.com/forestrie/mcp-register#readme",
+  "bugs": {
+    "url": "https://github.com/forestrie/mcp-register/issues"
+  },
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "packageManager": "pnpm@10.6.5",
+  "bin": {
+    "mcp-register": "./bin/mcp-register.mjs",
+    "forestrie-mcp-register": "./bin/mcp-register.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/core/index.d.ts",
+      "import": "./dist/core/index.js",
+      "default": "./dist/core/index.js"
+    },
+    "./net": {
+      "types": "./dist/net/index.d.ts",
+      "import": "./dist/net/index.js",
+      "default": "./dist/net/index.js"
+    },
+    "./server": {
+      "types": "./dist/node/server.d.ts",
+      "import": "./dist/node/server.js",
+      "default": "./dist/node/server.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/core/index.js",
+  "types": "./dist/core/index.d.ts",
+  "sideEffects": [
+    "./dist/node/cli.js",
+    "./bin/mcp-register.mjs"
+  ],
+  "files": [
+    "dist",
+    "src",
+    "bin",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check:browser-safe": "node tools/check-browser-safe.mjs",
+    "check:encoding-single-copy": "node scripts/check-encoding-single-copy.mjs",
+    "check:reverse-dependency": "node scripts/check-reverse-dependency.mjs",
+    "check:server-json": "node scripts/assert-server-json.mjs",
+    "check:stdio-clean": "node scripts/check-stdio-clean.mjs",
+    "test:unit": "vitest run --project unit",
+    "test:live": "vitest run --project live",
+    "test": "pnpm run check:browser-safe && pnpm run check:encoding-single-copy && pnpm run check:reverse-dependency && pnpm run check:server-json && vitest run --project unit",
+    "test:watch": "vitest --project unit",
+    "prepack": "pnpm run build",
+    "publish:dry-run": "pnpm pack && npm publish --dry-run --tag dryrun ./forestrie-mcp-register-*.tgz"
+  },
+  "dependencies": {
+    "@forestrie/delegation-cose": "0.3.2",
+    "@forestrie/encoding": "0.8.0",
+    "@forestrie/mcp-resolve": "0.3.0",
+    "@forestrie/mcp-verify": "0.5.0",
+    "@forestrie/receipt-verify": "2.0.0",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "esbuild": "^0.25.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.2",
+    "vitest": "^4.1.11"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public",
+    "provenance": true
+  }
+}
