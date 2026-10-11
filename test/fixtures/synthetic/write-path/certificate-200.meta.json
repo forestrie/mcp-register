@@ -1,0 +1,14 @@
+{
+  "url": "https://coordinator.example.test/api/delegations/certificate",
+  "method": "POST",
+  "status": 200,
+  "headers": {
+    "content-type": "application/json",
+    "content-length": "119"
+  },
+  "contentType": "application/json",
+  "bodyFile": "certificate-200.body",
+  "bodyBytes": 119,
+  "note": "The coordinator stored the delegation certificate.",
+  "bodySha256": "a89de069c008e9b069c4f04fa5a99c82bcf866d20cb5d29e4b7f97adeb370c41"
+}

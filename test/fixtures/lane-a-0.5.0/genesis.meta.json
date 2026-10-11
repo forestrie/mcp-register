@@ -1,0 +1,24 @@
+{
+  "url": "https://api-a.forest-2.forestrie.dev/api/forest/e22c8d55-3f88-b2b5-f225-5d2c2441bcdd/genesis",
+  "method": "GET",
+  "requestedAt": "2026-09-22T19:58:31Z",
+  "status": 200,
+  "headers": {
+    "date": "Tue, 22 Sep 2026 19:58:32 GMT",
+    "content-type": "application/cbor",
+    "content-length": "160",
+    "access-control-allow-origin": "*",
+    "cache-control": "public, max-age=31536000, immutable",
+    "access-control-allow-headers": "Content-Type, Authorization, X-PAYMENT, X-Ops-Authorization",
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+    "access-control-expose-headers": "X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE",
+    "report-to": "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=bn0eZg7cRPWPyO%2BF7Pu9kVArG5eW29zw%2FaD4qFKlpjgVTNrf8BBnxJdNfCMh8DY3WK4qaZxrOdtZIwZIjSwlCtR4oR0nmWLe0h53c84pnpsmZ2rY%2FuZ3hfcWfVxC57DIl4orNdRGpJAEYBEGJl0LwEG%2BLSxX8LAKvydP\"}]}",
+    "nel": "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}",
+    "server": "cloudflare",
+    "cf-ray": "a3f3e28a4b4f0036-LHR",
+    "alt-svc": "h3=\":443\"; ma=86400"
+  },
+  "bodySha256": "5dcbf4b963073f814f3602b82666334a344d3473496fbbd7bf2a7e3f73745d27",
+  "bodyBytes": 160,
+  "contentType": "application/cbor"
+}

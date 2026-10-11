@@ -1,0 +1,12 @@
+{
+  "key_ops": [
+    "sign"
+  ],
+  "ext": true,
+  "kty": "EC",
+  "x": "rCCAXfa6fDW0Zqv7KkeY5Ge-s62zWjgX0gsrVzjYoE8",
+  "y": "ccRtHmrSKIqIha7vt5jYZd0P2xMiW-Djdz0P_scLEFQ",
+  "crv": "P-256",
+  "d": "HAUjANZaHmYapTKPnTEJfsVCCvCsQmiQEGjvXdpL--4",
+  "warning": "TEST ONLY. This private key is published in a public repository to sign synthetic test fixtures. It must never be trusted, registered, granted anything, or used to sign anything else."
+}

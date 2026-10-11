@@ -1,0 +1,67 @@
+{
+  "capturedAt": "2026-09-22T19:58:33.165796Z",
+  "note": "plan-2609-08 phase 5 (2026-09-22): the re-genesised lane A. Three JSON-RPC 2.0 calls made once each to a public Base Sepolia endpoint (https://sepolia.base.org, a third-party example, not a default). Responses verbatim; the block response trimmed to number/hash/parentHash/timestamp.",
+  "logId": "da6f297c-4a0c-4c9a-b2ae-e701e558721d",
+  "univocity": "0xe22c8d553f88b2b5f2255d2c2441bcdd0d50cd58",
+  "chainId": "84532",
+  "blockNumber": "47169412",
+  "blockHash": "0x9b6ab33c1b75460a3ba36738b6923a6b49fe9fff19e665c8bad4b06a971f113f",
+  "calls": {
+    "eth_chainId": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "eth_chainId",
+        "params": []
+      },
+      "status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "result": "0x14a34",
+        "id": 1
+      }
+    },
+    "eth_getBlockByNumber": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "eth_getBlockByNumber",
+        "params": [
+          "latest",
+          false
+        ]
+      },
+      "status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "result": {
+          "number": "0x2cfbf84",
+          "hash": "0x9b6ab33c1b75460a3ba36738b6923a6b49fe9fff19e665c8bad4b06a971f113f",
+          "parentHash": "0x168426eaba7f83fd3f798f8c7b254ca397b770bfd6d671498a9e4c784b33224e",
+          "timestamp": "0x6ab2dde8"
+        }
+      }
+    },
+    "eth_call": {
+      "request": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "eth_call",
+        "params": [
+          {
+            "to": "0xe22c8d553f88b2b5f2255d2c2441bcdd0d50cd58",
+            "data": "0xeecac1b700000000000000000000000000000000da6f297c4a0c4c9ab2aee701e558721d"
+          },
+          "0x2cfbf84"
+        ]
+      },
+      "status": 200,
+      "response": {
+        "jsonrpc": "2.0",
+        "result": "0x000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000003000000000000000000000000000000000000000000000000000000000000000146ee1e654eda26c83d792e40153e3b0cddd1392755b18902e45abd5e1028760c",
+        "id": 3
+      }
+    }
+  }
+}

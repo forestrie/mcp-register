@@ -1,0 +1,24 @@
+{
+  "url": "https://api-a.forest-2.forestrie.dev/logs/e22c8d55-3f88-b2b5-f225-5d2c2441bcdd/da6f297c-4a0c-4c9a-b2ae-e701e558721d/14/entries/a0caa672b7030b000000000000000001/receipt",
+  "method": "GET",
+  "requestedAt": "2026-09-22T19:58:32Z",
+  "status": 200,
+  "headers": {
+    "date": "Tue, 22 Sep 2026 19:58:32 GMT",
+    "content-type": "application/scitt.receipt+cose",
+    "content-length": "438",
+    "access-control-allow-origin": "*",
+    "cache-control": "no-store",
+    "access-control-allow-headers": "Content-Type, Authorization, X-PAYMENT, X-Ops-Authorization",
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+    "access-control-expose-headers": "X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE",
+    "report-to": "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=lKwcBL2Bb%2B%2BL8MJrLsDUgOPsjF3Ab%2BmPULlgAY%2FRpXNyYM649s1%2FO86JLXAz%2B%2BonsUa6FyUtl1B2etHVFRQUKZ1OyGn9lEtkomYjoo%2FAtQouK0KEODEkOCuz5%2FBs37qHFJguL8ol0sQwEPJh7cIJ1bvP142gFZ7ab3Nu\"}]}",
+    "nel": "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}",
+    "server": "cloudflare",
+    "cf-ray": "a3f3e28ec80446d0-LHR",
+    "alt-svc": "h3=\":443\"; ma=86400"
+  },
+  "bodySha256": "9e79ac2a82e7aef63c31a07afc9b2554dea72e348c07c97c31b651a1d9131a01",
+  "bodyBytes": 438,
+  "contentType": "application/scitt.receipt+cose"
+}

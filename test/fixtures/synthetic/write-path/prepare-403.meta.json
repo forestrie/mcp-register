@@ -1,0 +1,14 @@
+{
+  "url": "https://canopy.example.test/api/forest/7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d/prepare",
+  "method": "POST",
+  "status": 403,
+  "headers": {
+    "content-type": "application/problem+cbor",
+    "content-length": "105"
+  },
+  "contentType": "application/problem+cbor",
+  "bodyFile": "prepare-403.body",
+  "bodyBytes": 105,
+  "note": "Prepare refused the grant.",
+  "bodySha256": "5eeaf1c5b407961ea3c573a04395fd6c6f776abf014769cb0096466bde83c813"
+}

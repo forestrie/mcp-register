@@ -1,0 +1,23 @@
+{
+  "url": "https://api-a.forest-2.forestrie.dev/logs/e22c8d55-3f88-b2b5-f225-5d2c2441bcdd/da6f297c-4a0c-4c9a-b2ae-e701e558721d/entries/0d7e2978ab9839c23af68bd949c7e15de6f2f75aae5baf13e602c485e3c0354e",
+  "method": "GET",
+  "requestedAt": "2026-09-22T19:58:32Z",
+  "status": 303,
+  "headers": {
+    "date": "Tue, 22 Sep 2026 19:58:32 GMT",
+    "content-length": "0",
+    "location": "https://api-a.forest-2.forestrie.dev/logs/e22c8d55-3f88-b2b5-f225-5d2c2441bcdd/da6f297c-4a0c-4c9a-b2ae-e701e558721d/14/entries/a0caa672b7030b000000000000000001/receipt",
+    "access-control-allow-origin": "*",
+    "access-control-allow-headers": "Content-Type, Authorization, X-PAYMENT, X-Ops-Authorization",
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+    "access-control-expose-headers": "X-PAYMENT-REQUIRED, X-PAYMENT-RESPONSE",
+    "report-to": "{\"group\":\"cf-nel\",\"max_age\":604800,\"endpoints\":[{\"url\":\"https://a.nel.cloudflare.com/report/v4?s=kEcb5VaS1xScGDrzig2RvdXbS7tKoF8xuLMTt9GTQW28Fl55UV8snVZVCYoFUxC0a69yTty4loYJ89WeqlGl0G0TBCMAtgB9nW1aC6%2BWrk95tT35THpjuyVpvm631dxxnrCHlmfodqptOrhys8BnAQQVQ6aqe%2FaIRFAK\"}]}",
+    "nel": "{\"report_to\":\"cf-nel\",\"success_fraction\":0.0,\"max_age\":604800}",
+    "server": "cloudflare",
+    "cf-ray": "a3f3e28b5b33d178-LHR",
+    "alt-svc": "h3=\":443\"; ma=86400"
+  },
+  "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "bodyBytes": 0,
+  "contentType": null
+}

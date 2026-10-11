@@ -1,0 +1,14 @@
+{
+  "url": "https://canopy.example.test/api/forest/7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d/prepare",
+  "method": "POST",
+  "status": 201,
+  "headers": {
+    "content-type": "application/cbor",
+    "content-length": "15"
+  },
+  "contentType": "application/cbor",
+  "bodyFile": "prepare-201.body",
+  "bodyBytes": 15,
+  "note": "Prepare accepted; the log's public root is published.",
+  "bodySha256": "1701c2ba4f77d815b67175454f31c4950caa1eceb2e696caf86bbd1d688ec8b5"
+}

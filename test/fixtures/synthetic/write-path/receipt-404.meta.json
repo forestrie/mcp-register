@@ -1,0 +1,14 @@
+{
+  "url": "https://canopy.example.test/logs/3f1c2d4e-5a6b-4c7d-8e9f-0a1b2c3d4e5f/7a8b9c0d-1e2f-4a3b-8c4d-5e6f7a8b9c0d/14/entries/5c0ffee5deadbeef0000000000000001/receipt",
+  "method": "GET",
+  "status": 404,
+  "headers": {
+    "content-type": "application/problem+cbor",
+    "content-length": "95"
+  },
+  "contentType": "application/problem+cbor",
+  "bodyFile": "receipt-404.body",
+  "bodyBytes": 95,
+  "note": "Sequenced but not yet sealed.",
+  "bodySha256": "a7a38d9bc93b63ae00962c7391afd598f9434085417a3cc184d864e27e5b6513"
+}
