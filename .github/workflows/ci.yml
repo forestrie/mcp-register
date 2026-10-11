@@ -1,0 +1,293 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Nothing at workflow level; each job asks for exactly what it needs.
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Format, typecheck, purity, unit tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # 20.19.0 is the engines floor (>=20.11.0, the import.meta.dirname
+        # release); 22.14.0 is what mise.toml pins and what we develop on.
+        # Running both is what keeps the engines claim from being a guess.
+        node-version: ["20.19.0", "22.14.0"]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        with:
+          install: true
+
+      # The matrix leg overrides mise's node pin; pnpm still comes from mise,
+      # and `packageManager` keeps its version honest.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      # NO registry credentials anywhere in this workflow. A passing install
+      # is the tokenless-install acceptance check.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Format
+        run: pnpm format:check
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # `test` chains check:browser-safe && check:encoding-single-copy &&
+      # check:server-json before vitest, so all three are release gates
+      # rather than advisory.
+      - name: Test (purity gates + unit)
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      # Proves tsconfig.build.json emits something Node's real ESM resolver
+      # accepts — a failure that would otherwise only appear after publish.
+      - name: Built ESM loads under plain node
+        run: |
+          node -e "import('./dist/core/index.js').then(m => { if (typeof m.PACKAGE_VERSION !== 'string') process.exit(1) })"
+
+      # InMemoryTransport cannot catch a stray console.log corrupting the
+      # stdio framing. This spawns the real bin and asserts clean stdout.
+      - name: stdio transport writes nothing but MCP frames
+        run: pnpm run check:stdio-clean
+
+  publish-dry-run:
+    name: Dry-run publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        with:
+          install: true
+
+      # Same pinned npm a future publish.yml would use, so the dry run
+      # exercises the real publish path rather than whatever npm node 22
+      # happens to ship.
+      - name: Pin npm
+        run: npm install -g npm@11.18.0
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      # npm refuses --dry-run over an already-published version, so give this
+      # build a version that can never collide with a real release.
+      - name: Give this build a throwaway version
+        run: npm pkg set version="0.0.0-dryrun-${GITHUB_SHA}"
+
+      - name: Pack
+        run: pnpm pack
+
+      # The packaging promise: if these are not in the tarball, `npx
+      # @forestrie/mcp-register` fails for every consumer and passes for
+      # every developer.
+      - name: The tarball contains what the runtime needs
+        run: |
+          set -euo pipefail
+          tarball=$(ls forestrie-mcp-register-*.tgz)
+          echo "inspecting $tarball"
+          contents=$(tar -tzf "$tarball")
+          for required in \
+            package/bin/mcp-register.mjs \
+            package/dist/core/index.js \
+            package/dist/net/index.js \
+            package/dist/node/server.js \
+            package/dist/node/cli.js \
+            package/LICENSE \
+            package/README.md
+          do
+            if ! grep -qx "$required" <<<"$contents"; then
+              echo "::error::$required is missing from the tarball" >&2
+              echo "$contents" >&2
+              exit 1
+            fi
+          done
+          echo "OK: every required path is in the tarball"
+
+      # The consumer's resolver is what is under test, so install with NPM,
+      # not pnpm. This is the assertion that matters: pnpm's isolated store is
+      # not what an `npx -y @forestrie/mcp-register` user gets.
+      - name: Scratch-install the tarball with npm and re-run the encoding gate
+        run: |
+          set -euo pipefail
+          tarball="$PWD/$(ls forestrie-mcp-register-*.tgz)"
+          scratch=$(mktemp -d)
+          cd "$scratch"
+          npm init -y >/dev/null
+          npm install --silent "$tarball"
+          cd - >/dev/null
+          node scripts/check-encoding-single-copy.mjs "$scratch"
+          echo "SCRATCH=$scratch" >> "$GITHUB_ENV"
+
+      # The npx acceptance test, one release short of real.
+      - name: The installed bin speaks MCP on stdio with clean stdout
+        run: node scripts/check-stdio-clean.mjs "$SCRATCH/node_modules/.bin/forestrie-mcp-register"
+
+      - name: Dry-run publish
+        run: npm publish --dry-run --tag dryrun ./forestrie-mcp-register-*.tgz
+
+  actionlint:
+    name: Lint workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      # Script URL and binary version pinned to the same release.
+      - name: Install actionlint
+        run: bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash) 1.7.12
+
+      - name: actionlint
+        run: ./actionlint -color
+
+      # Prove BOTH paths of the version guard on every PR. A guard that has
+      # only ever been seen to pass is not a guard.
+      - name: assert-publish-version self-test — pass path
+        run: |
+          version=$(node -p "require('./package.json').version")
+          GITHUB_REF="refs/tags/v${version}" ./scripts/assert-publish-version.sh .
+
+      # GITHUB_REF cannot be overridden via `env:` (the runner owns GITHUB_*),
+      # so each self-test sets it inline on the command, as the pass path does.
+      - name: assert-publish-version self-test — fail path
+        run: |
+          if GITHUB_REF="refs/tags/v99.99.99" ./scripts/assert-publish-version.sh . ; then
+            echo "::error::assert-publish-version accepted a tag that does not match package.json" >&2
+            exit 1
+          fi
+          echo "OK: a mismatched tag is refused"
+
+      - name: assert-publish-version self-test — foreign tag is refused
+        run: |
+          if GITHUB_REF="refs/tags/encoding-v1.0.0" ./scripts/assert-publish-version.sh . ; then
+            echo "::error::assert-publish-version accepted a foreign tag" >&2
+            exit 1
+          fi
+          echo "OK: a foreign tag is refused"
+
+      # A rehearsal dispatch never runs `npm publish` (a future publish.yml's
+      # own `if:` skips that step, as the verifier's does), so it must pass
+      # even when the version is already published — the normal case for
+      # re-running a rehearsal, not an error.
+      - name: assert-publish-version self-test — rehearsal dispatch skips the registry check
+        run: |
+          if ! GITHUB_REF="refs/heads/main" REHEARSAL=true ./scripts/assert-publish-version.sh . ; then
+            echo "::error::a rehearsal dispatch must pass regardless of registry state" >&2
+            exit 1
+          fi
+          echo "OK: rehearsal dispatch passes without a registry lookup"
+
+      - name: assert-publish-version self-test — REHEARSAL=true on a tag ref is refused
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if GITHUB_REF="refs/tags/v${version}" REHEARSAL=true ./scripts/assert-publish-version.sh . ; then
+            echo "::error::a tag ref must never be accepted as a rehearsal" >&2
+            exit 1
+          fi
+          echo "OK: a tag build can never be a rehearsal"
+
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db # v3.6.3
+        with:
+          install: true
+
+      # This job has no matrix (unlike `check`); pinned to the same 22.x
+      # value that job's matrix develops on. pnpm still comes from mise,
+      # and `packageManager` keeps its version honest.
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.14.0"
+
+      # NO registry credentials anywhere in this workflow. A passing install
+      # is the tokenless-install acceptance check.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # server.json can't read version/name from package.json at build time
+      # (it's a static file the registry fetches directly), so prove both
+      # paths of the guard that keeps them honest. assert-server-json.mjs
+      # imports ajv/ajv-formats, so this job needs dependencies installed
+      # before these self-tests run.
+      - name: assert-server-json self-test — pass path
+        run: node scripts/assert-server-json.mjs .
+
+      - name: assert-server-json self-test — server.json#version mismatch is refused
+        run: |
+          scratch=$(mktemp -d)
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const server = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            server.version = "0.0.0-mismatch";
+            fs.writeFileSync(process.argv[1] + "/package.json", JSON.stringify(pkg));
+            fs.writeFileSync(process.argv[1] + "/server.json", JSON.stringify(server));
+          ' "$scratch"
+          if node scripts/assert-server-json.mjs "$scratch" ; then
+            echo "::error::assert-server-json accepted a server.json version that does not match package.json" >&2
+            exit 1
+          fi
+          echo "OK: a server.json#version mismatch is refused"
+
+      - name: assert-server-json self-test — packages[0].version mismatch is refused
+        run: |
+          scratch=$(mktemp -d)
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const server = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            server.packages[0].version = "0.0.0-mismatch";
+            fs.writeFileSync(process.argv[1] + "/package.json", JSON.stringify(pkg));
+            fs.writeFileSync(process.argv[1] + "/server.json", JSON.stringify(server));
+          ' "$scratch"
+          if node scripts/assert-server-json.mjs "$scratch" ; then
+            echo "::error::assert-server-json accepted a packages[0].version that does not match package.json" >&2
+            exit 1
+          fi
+          echo "OK: a packages[0].version mismatch is refused"
+
+      - name: assert-server-json self-test — name/mcpName mismatch is refused
+        run: |
+          scratch=$(mktemp -d)
+          node -e '
+            const fs = require("fs");
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const server = JSON.parse(fs.readFileSync("server.json", "utf8"));
+            server.name = "dev.forestrie/not-register";
+            fs.writeFileSync(process.argv[1] + "/package.json", JSON.stringify(pkg));
+            fs.writeFileSync(process.argv[1] + "/server.json", JSON.stringify(server));
+          ' "$scratch"
+          if node scripts/assert-server-json.mjs "$scratch" ; then
+            echo "::error::assert-server-json accepted a server.json name that does not match package.json#mcpName" >&2
+            exit 1
+          fi
+          echo "OK: a name/mcpName mismatch is refused"

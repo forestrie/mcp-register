@@ -1,0 +1,6 @@
+# Empty ignore register. Its purpose is to make actionlint's config
+# discoverable: with this file present, `./actionlint` picks up repo config
+# without a -config-file flag, and a future ignore has an obvious home rather
+# than being smuggled in as a CLI argument nobody reads.
+self-hosted-runner:
+  labels: []

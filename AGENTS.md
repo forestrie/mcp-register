@@ -1,0 +1,159 @@
+# AGENTS.md — conventions for this repo
+
+Read this before changing anything. Most of it is not style; it is the set of
+invariants that make the package's claims checkable, and each one is enforced
+by something that will go red.
+
+This repo is the write path of the Forestrie MCP trio: it signs statements
+with a log key held behind a signer backend, registers them under a
+Forestrie-Grant the caller holds, delegates sealing for the caller's data log,
+and verifies the receipt by composing `@forestrie/mcp-resolve` (fetching) and
+`@forestrie/mcp-verify` (verifying) as libraries. It never handles money in
+this release.
+
+**`@forestrie/mcp-verify` and `@forestrie/mcp-resolve` are dependencies, never
+siblings; changes to them happen in their repos.** This package imports only
+their published exports. A missing export needs a release there, and this repo
+waits for the bump.
+
+## The layer boundary
+
+This is the most important thing in the repo. Three layers.
+
+|              | `src/core/`                                                                                                                           | `src/net/`                                                                                                                             | `src/node/`                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| What it is   | Pure over bytes: request construction, response classification, compose logic over already-fetched bytes.                             | The ONLY place `fetch` is called: thin functions over the registration endpoints.                                                      | The adapter: MCP SDK, stdio, filesystem, the signer backend and the key file. |
+| Exported as  | `"."`                                                                                                                                 | `"./net"`                                                                                                                              | `"./server"`                                                                  |
+| **Must not** | import `node:*`, call `fetch`, read a file, touch the MCP SDK or key material, or take a path or a base64 string as a parameter       | call `fetch` without going through a `fetchImpl` parameter                                                                             | leak back into `src/core` or `src/net`                                        |
+| May          | take and return `Uint8Array`                                                                                                          | take and return `Uint8Array`; every function takes `fetchImpl` defaulting to `globalThis.fetch`                                        | do anything Node can                                                          |
+| Enforced by  | `pnpm run check:browser-safe` — esbuild bundles `src/core/index.ts` for `platform: "browser"` and fails on any edge to a node builtin | the unit test project's forbidden-fetch global (below); no automated proof that every call site injects `fetchImpl` — reviewed by hand | the same browser-safe gate, from the other side                               |
+
+Every core signature takes `Uint8Array`, never a path and never a base64
+string. Base64 decoding and `{path}` resolution live in `src/node/`, which
+together with `src/net/` is the **only** place `node:fs` and `fetch` appear.
+
+## Signing keys
+
+The log key is ES256. Signing happens only in `src/node`, behind a signer
+backend (default: a local key file the server creates). Signature bytes never
+cross the MCP boundary as tool inputs: a tool takes the statement to sign, not
+a signature. Key material never enters `src/core` or `src/net` and is never
+written to stdout or to a tool result.
+
+## The gates
+
+All CI-blocking, checked before every merge:
+
+1. **`check:browser-safe`** — esbuild bundles `src/core/index.ts` for
+   `platform: "browser"` and fails on any `node:*` edge.
+2. **No fetch in core, no un-injected fetch in net** — the vitest `unit`
+   project replaces `globalThis.fetch` with a thrower for the whole run
+   (`test/setup/forbid-fetch.ts`); `src/net` is tested only through injected
+   fakes. Any real fetch in a unit test is a red test, not a slow one.
+3. **`check:encoding-single-copy`** — exactly one copy of each
+   `@forestrie/*` package this repo pins (and the wire packages they pull in),
+   run on the repo and on a scratch `npm i` of the packed tarball.
+4. **`check:reverse-dependency`** — nothing this package depends on may
+   depend back on `@forestrie/mcp-register` (above all, `@forestrie/mcp-verify`
+   and `@forestrie/mcp-resolve` must stay read-only). Walks the repo's whole
+   installed tree, pnpm's `.pnpm` store included, which holds every
+   transitive dependency, and fails on any package of that name. Offline. It
+   also fails unless the walk saw both mcp-verify and mcp-resolve, so it can
+   never pass by looking at nothing.
+5. **`check:stdio-clean`** — the real bin writes exactly one `initialize`
+   response to stdout and nothing else.
+6. **`check:server-json`** — `server.json` validates with ajv against the
+   registry schema vendored at `tools/registry-schema/2025-12-11.json` and
+   matches `package.json#mcpName` and `#version`, so npm never publishes a
+   `server.json` the registry rejects.
+
+The `live` vitest project (`pnpm test:live`) makes real requests, is opt-in by
+`FORESTRIE_LIVE=1`, and is never a required check.
+
+## All relative imports end in `.js`
+
+`tsconfig.json` uses `moduleResolution: "bundler"` for typechecking, but
+`tsconfig.build.json` overrides it to `NodeNext` for emit. That is deliberate:
+`bundler` resolution lets you write extensionless relative imports that Node's
+ESM loader then rejects at runtime — a failure that only appears _after
+publish_. Under `NodeNext`, `pnpm build` fails instead.
+
+So: `import { x } from "./thing.js"`, always, even from a `.ts` file.
+
+## Dependencies are exact, and bumped deliberately
+
+`@forestrie/*` and the MCP SDK are pinned to exact versions. There is no
+Renovate and no Dependabot in this estate, so exact pins are a manual-bump
+discipline, not accidental staleness.
+
+**Never add `pnpm.overrides` for any `@forestrie/*` package.** An override
+would _silence_ the exact skew `scripts/check-encoding-single-copy.mjs` exists
+to detect, by rewriting a transitive dependency to a version its parent was
+never tested against. If a dependency drags in a second copy, fix or drop that
+dependency, or wait for its bump — never an override.
+
+Bump in dependency order: `@forestrie/mcp-verify` first, then
+`@forestrie/mcp-resolve` (which pins the verifier exactly), then this
+package, pinning the verifier at the version mcp-resolve pins. Pinning a
+newer verifier than mcp-resolve's puts two copies of the wire packages in
+the tree, and `check:encoding-single-copy` fails.
+
+When you bump a version, update `src/core/version.ts` in the same commit.
+`test/core/version.test.ts` asserts every `*_VERSION` constant equals the
+matching pin in `package.json#dependencies`, and the MCP smoke test asserts
+`PACKAGE_VERSION === package.json#version`, so a forgotten bump is a red test
+rather than a silent lie.
+
+## Nothing writes to stdout in stdio mode except the transport
+
+A stray `console.log` in `src/node/**` does not produce a warning. It produces
+a malformed JSON-RPC frame and an MCP client that mysteriously fails to
+initialise. All logging goes to **stderr**.
+
+`pnpm run check:stdio-clean` spawns the real bin and asserts stdout carries
+exactly one well-formed `initialize` response and nothing else. Related:
+`main()` returns an exit code and does **not** call `process.exit`.
+
+## The honesty rule
+
+Verification results pass through `@forestrie/mcp-verify`'s answers
+unaltered: this package may add rows about where bytes came from and what was
+registered, and never edits the verifier's answers.
+
+## Tests
+
+```
+pnpm test              # check:browser-safe && check:encoding-single-copy && check:reverse-dependency && check:server-json && unit
+pnpm test:unit         # vitest --project unit
+pnpm test:live         # vitest --project live (opt-in, FORESTRIE_LIVE=1, never required)
+pnpm typecheck
+pnpm format:check
+pnpm build
+```
+
+## Releasing
+
+Merge a version-bump PR, then `git tag v<version> && git push --tags`.
+`scripts/assert-publish-version.sh` makes a mistyped tag fail closed.
+
+1. Bump `version` in `package.json` **and** `PACKAGE_VERSION` in
+   `src/core/version.ts` in the same PR.
+2. Bump `version` (and `packages[0].version`) in `server.json` to match.
+   `scripts/assert-server-json.mjs` fails closed if they disagree, or if
+   `server.json#name` no longer matches `package.json#mcpName`.
+3. Merge to `main`, then tag.
+4. `.github/workflows/publish.yml` asserts the tag matches `package.json`,
+   runs the full gate, builds, packs, and publishes to npm via OIDC trusted
+   publishing with provenance, then lists `dev.forestrie/register` with the
+   official MCP registry. It has no self-registration step.
+
+The first publish must be by hand: npm cannot register a trusted publisher
+for a package that does not exist yet. The trusted publisher is GitHub
+Actions, org `forestrie`, repo `mcp-register`, workflow `publish.yml`,
+environment `npm-publish`.
+
+## Links must resolve without org access
+
+Every link in the README, in `--help` text, and in `server.json` must resolve
+for someone with no GitHub org membership. Where an internal document is the
+source, inline what is needed and cite it by name, not by URL.

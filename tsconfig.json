@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    // The estate's shared strict set — byte-identical to forestrie-cli/tsconfig.json
+    // and univocity-tools/tsconfig.base.json, and to @forestrie/mcp-verify's
+    // own tsconfig.json (this repo's skeleton).
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // "DOM" is here for the WebCrypto TYPES only — CryptoKey, SubtleCrypto.
+    // It is the same choice canopy's receipt-verify makes
+    // (packages/libs/receipt-verify/tsconfig.json: lib ES2022 + DOM), and for
+    // the same reason: src/core is browser-safe code that uses the Web Crypto
+    // API, whose types live in the DOM lib and nowhere else reachable without
+    // importing node:crypto — which src/core may not do. Deviation from the
+    // shared strict set, which was written for node-only CLIs.
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    // Additions this repo needs and the Bun template did not.
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

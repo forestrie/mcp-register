@@ -1,0 +1,9 @@
+dist/
+node_modules/
+pnpm-lock.yaml
+fixtures/
+*.cbor
+# Vendored verbatim from the registry — must stay byte-identical to
+# the fetched bytes so its sha256 keeps matching what CI fetched and
+# checked once; reformatting it would silently break that pin.
+tools/registry-schema/
