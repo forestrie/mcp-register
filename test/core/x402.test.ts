@@ -7,6 +7,7 @@ import {
   DEFAULT_PAY_ASSET,
   DEFAULT_PAY_NETWORK,
   PaymentError,
+  grantPaymentNonce,
   readPaymentPayload,
   readPaymentRequired,
   selectWithinCaps,
@@ -180,5 +181,26 @@ describe("readPaymentPayload", () => {
     expect(refusal(() => readPaymentPayload({ x402Version: 2 }))).toBe(
       "invalid_payment",
     );
+  });
+});
+
+describe("grantPaymentNonce", () => {
+  const payerA = new Uint8Array(20).fill(0xaa);
+  const payerB = new Uint8Array(20).fill(0xbb);
+  const grant1 = new TextEncoder().encode("grant v0 cbor one");
+  const grant2 = new TextEncoder().encode("grant v0 cbor two");
+
+  it("is one 32-byte nonce per grant content and payer", async () => {
+    const n = await grantPaymentNonce(grant1, payerA);
+    expect(n).toMatch(/^0x[0-9a-f]{64}$/);
+    expect(await grantPaymentNonce(grant1.slice(), payerA)).toBe(n);
+    expect(await grantPaymentNonce(grant2, payerA)).not.toBe(n);
+    expect(await grantPaymentNonce(grant1, payerB)).not.toBe(n);
+  });
+
+  it("refuses a payer address that is not 20 bytes", async () => {
+    await expect(
+      grantPaymentNonce(grant1, new Uint8Array(32)),
+    ).rejects.toBeInstanceOf(PaymentError);
   });
 });

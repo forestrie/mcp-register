@@ -28,6 +28,7 @@
 import {
   appendCborBstr,
   appendCborText,
+  decodeCoseSign1,
   encodeCborDeterministic,
   encodeGrantPayloadV0Canonical,
   mergeUnprotectedIntoCoseSign1,
@@ -192,4 +193,17 @@ export function completeGrant(
       [HEADER_IDTIMESTAMP, idtimestamp],
     ]),
   );
+}
+
+/** The grant v0 CBOR a grant carries at unprotected -65538: its content. */
+export function grantContent(grant: Uint8Array): Uint8Array {
+  const sign1 = decodeCoseSign1(grant);
+  const unprotected = sign1?.unprotected;
+  const content =
+    unprotected instanceof Map ? unprotected.get(-65538) : undefined;
+  if (!(content instanceof Uint8Array) || content.length === 0)
+    throw new GrantError(
+      "not a Forestrie-Grant: no grant v0 CBOR at unprotected label -65538",
+    );
+  return content;
 }

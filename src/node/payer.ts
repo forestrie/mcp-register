@@ -5,9 +5,16 @@
  * hold no funds; the payer is an EVM account that holds testnet USDC and
  * signs only standard x402 authorisations (EIP-3009
  * `transferWithAuthorization`, the "exact" scheme). The default backend is
- * the upstream x402 client (`@x402/core` with `@x402/evm`'s exact scheme)
- * over a viem account loaded from a local key file. An embedder passes its
- * own `PayerBackend` (a hosted wallet) to `createServer({ payer })`.
+ * a viem account loaded from a local key file. An embedder passes its own
+ * `PayerBackend` (a hosted wallet) to `createServer({ payer })`.
+ *
+ * The default backend builds the x402 v2 payment payload exactly as the
+ * upstream client does (`@x402/evm`'s `createEIP3009Payload`), with one
+ * difference: the nonce is the one register_grant derives from the grant
+ * (`grantPaymentNonce`), where upstream draws a random one and offers no way
+ * to supply it. A derived nonce is what makes paying twice for one grant
+ * impossible rather than merely avoided. `test/node/payer.test.ts` checks
+ * the payload against the upstream client's, field for field.
  *
  * The payer key never crosses the MCP boundary: no tool takes or returns it,
  * the file is refused if it is a symlink or readable by others, and no
@@ -15,10 +22,7 @@
  * (`readPaymentCaps`), never tool arguments.
  */
 import { lstatSync, readFileSync } from "node:fs";
-import { x402Client } from "@x402/core/client";
-import { encodePaymentSignatureHeader } from "@x402/core/http";
-import type { Network } from "@x402/core/types";
-import { registerExactEvmScheme } from "@x402/evm/exact/client";
+import { getAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import {
   DEFAULT_PAY_ASSET,
@@ -36,9 +40,19 @@ export interface PayerBackend {
   /**
    * Sign a payment for exactly `option` (already checked against the caps)
    * and return the `X-PAYMENT` header value: base64 of the x402 v2 payment
-   * payload.
+   * payload. The authorisation MUST carry `nonce`; register_grant refuses
+   * to send one that does not.
    */
-  pay(required: PaymentRequired, option: PaymentOption): Promise<string>;
+  pay(request: PayRequest): Promise<string>;
+}
+
+export interface PayRequest {
+  required: PaymentRequired;
+  option: PaymentOption;
+  /** The EIP-3009 nonce, `0x` + 64 hex, derived from the grant. */
+  nonce: string;
+  /** Seconds since the epoch; validBefore is this plus maxTimeoutSeconds. */
+  nowSeconds: number;
 }
 
 export class PayerError extends Error {
@@ -88,7 +102,18 @@ export function openKeyFilePayer(path: string): PayerBackend {
   return evmPayer(text as `0x${string}`, `local payer key file ${path}`);
 }
 
-/** The upstream x402 client over a viem account. */
+const TRANSFER_WITH_AUTHORIZATION = {
+  TransferWithAuthorization: [
+    { name: "from", type: "address" },
+    { name: "to", type: "address" },
+    { name: "value", type: "uint256" },
+    { name: "validAfter", type: "uint256" },
+    { name: "validBefore", type: "uint256" },
+    { name: "nonce", type: "bytes32" },
+  ],
+} as const;
+
+/** An EIP-3009 "exact" payer over a viem account. */
 export function evmPayer(
   privateKey: `0x${string}`,
   description: string,
@@ -97,24 +122,54 @@ export function evmPayer(
   return {
     address: account.address,
     description,
-    pay: async (required, option) => {
-      // The caps were applied before this call, over this one option; the
-      // client sees nothing else to choose from. Its own default spend
-      // control (a $1 per-payment cap on assets it recognises) stays on as a
-      // second, independent limit.
-      const client = new x402Client();
-      registerExactEvmScheme(client, {
-        signer: account,
-        networks: [option.network as Network],
+    pay: async ({ required, option, nonce, nowSeconds }) => {
+      const chainId = Number(option.network.split(":")[1]);
+      const name = option.extra?.["name"];
+      const version = option.extra?.["version"];
+      if (!/^eip155:[0-9]+$/.test(option.network))
+        throw new Error(`not an EVM network: ${option.network}`);
+      if (typeof name !== "string" || typeof version !== "string")
+        throw new Error(
+          `the payment requirements lack the EIP-712 domain (extra.name, extra.version) for asset ${option.asset}`,
+        );
+      if (!/^0x[0-9a-f]{64}$/.test(nonce))
+        throw new Error(`nonce must be 0x + 64 lowercase hex`);
+      const authorization = {
+        from: account.address,
+        to: getAddress(option.payTo),
+        value: option.amount,
+        validAfter: "0",
+        validBefore: String(nowSeconds + (option.maxTimeoutSeconds ?? 300)),
+        nonce,
+      };
+      const signature = await account.signTypedData({
+        domain: {
+          name,
+          version,
+          chainId,
+          verifyingContract: getAddress(option.asset),
+        },
+        types: TRANSFER_WITH_AUTHORIZATION,
+        primaryType: "TransferWithAuthorization",
+        message: {
+          from: authorization.from,
+          to: authorization.to,
+          value: BigInt(authorization.value),
+          validAfter: 0n,
+          validBefore: BigInt(authorization.validBefore),
+          nonce: nonce as `0x${string}`,
+        },
       });
-      const payload = await client.createPaymentPayload({
+      // The x402 v2 PaymentPayload, in the upstream client's field order.
+      const payload = {
         x402Version: 2,
-        accepts: [option],
+        payload: { authorization, signature },
         ...(required.resource !== undefined
           ? { resource: required.resource }
           : {}),
-      } as Parameters<x402Client["createPaymentPayload"]>[0]);
-      return encodePaymentSignatureHeader(payload);
+        accepted: option,
+      };
+      return Buffer.from(JSON.stringify(payload), "utf8").toString("base64");
     },
   };
 }

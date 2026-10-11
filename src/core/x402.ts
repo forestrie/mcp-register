@@ -272,3 +272,43 @@ export function readPaymentPayload(json: unknown): PaymentSummary {
     validBefore: field("validBefore"),
   };
 }
+
+const NONCE_TAG = new TextEncoder().encode(
+  "forestrie/mcp-register x402 grant payment nonce v1",
+);
+
+/**
+ * The EIP-3009 nonce for paying for one grant: SHA-256 over a domain tag,
+ * the grant's content (its grant v0 CBOR, so a re-signed copy of the same
+ * grant gets the same nonce) and the payer's 20-byte address.
+ *
+ * EIP-3009 lets a token contract execute at most one authorisation per
+ * (payer, nonce), and canopy's claim and its settlement de-duplication are
+ * keyed by the nonce too. So every authorisation this payer ever signs for
+ * this grant shares one nonce, and at most one of them can settle: two
+ * overlapping calls, a retry after a lost answer, or a second process
+ * sharing the same payer cannot pay for the grant twice.
+ */
+export async function grantPaymentNonce(
+  grantContent: Uint8Array,
+  payerAddress: Uint8Array,
+): Promise<string> {
+  if (payerAddress.length !== 20)
+    throw new PaymentError(
+      "invalid_payment",
+      `the payer address must be 20 bytes (got ${payerAddress.length})`,
+    );
+  const content = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", grantContent as BufferSource),
+  );
+  const material = new Uint8Array(NONCE_TAG.length + 1 + 32 + 20);
+  material.set(NONCE_TAG, 0);
+  material.set(content, NONCE_TAG.length + 1);
+  material.set(payerAddress, NONCE_TAG.length + 33);
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", material as BufferSource),
+  );
+  let hex = "0x";
+  for (const b of digest) hex += b.toString(16).padStart(2, "0");
+  return hex;
+}

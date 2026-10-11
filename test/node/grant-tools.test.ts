@@ -32,6 +32,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { base64ToBytes, bytesToBase64 } from "../../src/core/base64.js";
 import { inspectGrant, statementGrantProblems } from "../../src/core/grant.js";
 import { toHex } from "../../src/core/hex.js";
+import { grantContent } from "../../src/core/issue.js";
+import { grantPaymentNonce } from "../../src/core/x402.js";
 import type { Es256Signer } from "../../src/core/signer.js";
 import { evmPayer, type PayerBackend } from "../../src/node/payer.js";
 import { createServer } from "../../src/node/server.js";
@@ -361,7 +363,12 @@ describe("register_grant, relay mode (no payer configured)", () => {
     // The caller's own wallet, outside this server: the same upstream client.
     const wallet = payer();
     const required = decodeB64Json(challenge["paymentRequiredHeader"]);
-    const payment = await wallet.pay(required, required.accepts[0]);
+    const payment = await wallet.pay({
+      required,
+      option: required.accepts[0],
+      nonce: `0x${"ab".repeat(32)}`,
+      nowSeconds: nowSeconds(),
+    });
 
     const r = await call("register_grant", {
       logId: pg.childLogId,
@@ -394,7 +401,12 @@ describe("register_grant, relay mode (no payer configured)", () => {
     const required = decodeB64Json(challenge["paymentRequiredHeader"]);
     // A wallet that signs for the wrong amount.
     const wrong = { ...required.accepts[0], amount: "1" };
-    const payment = await payer().pay(required, wrong);
+    const payment = await payer().pay({
+      required,
+      option: wrong,
+      nonce: `0x${"cd".repeat(32)}`,
+      nowSeconds: nowSeconds(),
+    });
 
     const r = await call("register_grant", { logId: pg.childLogId, payment });
     expect(r["problem"]).toMatchObject({
@@ -458,7 +470,16 @@ describe("register_grant, payer configured", () => {
     expect(endpoint.verdicts).toEqual([
       { isValid: true, payer: pg.payerAddress },
     ]);
-    // Counted once, and the pending payment is gone.
+    // The nonce is the grant's own, and the payment is counted once.
+    const expectedNonce = await grantPaymentNonce(
+      grantContent(
+        readFileSync(path.join(home, "grants", pg.childLogId, "grant.cose")),
+      ),
+      Buffer.from(pg.payerAddress.slice(2), "hex"),
+    );
+    expect(decodeB64Json(xPayment).payload.authorization.nonce).toBe(
+      expectedNonce,
+    );
     const lines = ledgerLines().map((l) => JSON.parse(l));
     expect(lines).toEqual([
       expect.objectContaining({
@@ -467,12 +488,10 @@ describe("register_grant, payer configured", () => {
         asset: pg.asset.toLowerCase(),
         payTo: pg.payTo,
         from: pg.payerAddress,
+        nonce: expectedNonce,
         logId: pg.childLogId,
       }),
     ]);
-    expect(
-      existsSync(path.join(home, "grants", pg.childLogId, "payment.txt")),
-    ).toBe(false);
     // Nothing secret in the result.
     expect(JSON.stringify(r)).not.toContain(pg.payerPrivateKey.slice(2));
     expect(JSON.stringify(r)).not.toContain(xPayment);
@@ -493,42 +512,81 @@ describe("register_grant, payer configured", () => {
     expect(ledgerLines()).toEqual([]);
   });
 
-  it("re-sends the same payment after a lost answer, never a second one", async () => {
+  it("a retry after a lost answer signs with the same nonce, so at most one payment can settle", async () => {
+    let now = NOW;
     const { call, endpoint } = await connect({
       payer: payer(),
       env: CAPS,
       answers: [new TypeError("socket hang up")],
+      now: () => now,
     });
     await issue(call);
     const lost = await call("register_grant", { logId: pg.childLogId });
     expect(lost["problem"]).toMatchObject({ code: "network" });
-    expect(lost["problem"].message).toMatch(/the same payment is re-sent/);
-    const pending = readFileSync(
-      path.join(home, "grants", pg.childLogId, "payment.txt"),
-      "utf8",
-    );
-    expect(pending).toBe(endpoint.posts[1]!.headers["x-payment"]);
+    expect(lost["problem"].message).toMatch(/the grant's own nonce/);
 
+    now = new Date(NOW.getTime() + 60_000);
     const resumed = await call("register_grant", { logId: pg.childLogId });
     expect(resumed["state"]).toBe("accepted");
-    // challenge, paid (lost), paid again with the very same authorisation.
-    expect(endpoint.posts).toHaveLength(3);
-    expect(endpoint.posts[2]!.headers["x-payment"]).toBe(pending);
-    expect(ledgerLines()).toHaveLength(1);
+    // challenge, paid (lost), challenge again, paid again: a new
+    // authorisation (a later validBefore), the same nonce.
+    const paid = endpoint.posts
+      .map((p) => p.headers["x-payment"])
+      .filter((h): h is string => h !== undefined)
+      .map((h) => decodeB64Json(h).payload.authorization);
+    expect(paid).toHaveLength(2);
+    expect(paid[0].validBefore).not.toBe(paid[1].validBefore);
+    expect(paid[1].nonce).toBe(paid[0].nonce);
+    // Two ledger lines, one payment counted.
+    expect(ledgerLines()).toHaveLength(2);
+    expect(
+      new SpendLedger(home).spentToday(
+        NOW,
+        pg.network,
+        pg.asset.toLowerCase(),
+      ),
+    ).toBe(BigInt(amount));
   });
 
-  it("pays once when two calls for one grant overlap", async () => {
+  it("overlapping calls for one grant all sign the same nonce", async () => {
     const { call, endpoint } = await connect({ payer: payer(), env: CAPS });
     await issue(call);
-    const [a, b] = await Promise.all([
+    const results = await Promise.all([
+      call("register_grant", { logId: pg.childLogId }),
       call("register_grant", { logId: pg.childLogId }),
       call("register_grant", { logId: pg.childLogId }),
     ]);
-    expect(a["state"]).toBe("accepted");
-    // The second finds it accepted and follows it; it pays nothing.
-    expect(b["problem"]?.code ?? b["state"]).not.toBe("payment_required");
-    expect(endpoint.verdicts).toHaveLength(1);
-    expect(ledgerLines()).toHaveLength(1);
+    expect(results.some((r) => r["state"] === "accepted")).toBe(true);
+    const nonces = new Set(
+      endpoint.posts
+        .map((p) => p.headers["x-payment"])
+        .filter((h): h is string => h !== undefined)
+        .map((h) => decodeB64Json(h).payload.authorization.nonce),
+    );
+    expect(nonces.size).toBe(1);
+    expect(
+      new SpendLedger(home).spentToday(
+        NOW,
+        pg.network,
+        pg.asset.toLowerCase(),
+      ),
+    ).toBe(BigInt(amount));
+  });
+
+  it("refuses to send a payment that does not carry the grant's nonce", async () => {
+    const own = payer();
+    const careless: PayerBackend = {
+      ...own,
+      description: "a wallet that picks its own nonce",
+      pay: (req) => own.pay({ ...req, nonce: `0x${"ee".repeat(32)}` }),
+    };
+    const { call, endpoint } = await connect({ payer: careless, env: CAPS });
+    await issue(call);
+    const r = await call("register_grant", { logId: pg.childLogId });
+    expect(r["problem"]).toMatchObject({ code: "invalid_payment" });
+    expect(r["problem"].message).toMatch(/grant's nonce/);
+    expect(endpoint.posts).toHaveLength(1);
+    expect(ledgerLines()).toEqual([]);
   });
 
   it("reports a payer that fails to sign, and counts nothing", async () => {
@@ -593,9 +651,6 @@ describe("register_grant cap refusals: each refuses before signing anything", ()
     expect(endpoint.posts).toHaveLength(1);
     expect(endpoint.verdicts).toHaveLength(0);
     expect(ledgerLines()).toEqual([]);
-    expect(
-      existsSync(path.join(home, "grants", pg.childLogId, "payment.txt")),
-    ).toBe(false);
     return r;
   }
 

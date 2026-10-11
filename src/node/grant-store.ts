@@ -2,15 +2,11 @@
  * Where child grants are kept between issue_grant and register_grant:
  * `<home>/grants/<logId>/` holding `record.json`, `grant.cose` (as signed),
  * `parent.cose` (the requester's authority grant, when known),
- * `payment.txt` (an `X-PAYMENT` sent but not yet answered), `receipt.cose`
- * and `completed.cose` (the grant with its receipt: the credential).
+ * `receipt.cose` and `completed.cose` (the grant with its receipt: the
+ * credential).
  *
  * The record is keyed by the child log id, so register_grant resumes from
- * whatever state the last call reached, and never pays twice for one grant:
- * a payment once sent is re-sent on retry (canopy's claim is idempotent per
- * authorisation and grant), never replaced by a new one. Nothing here is
- * secret except `payment.txt`, a signed authorisation to pay canopy's payee
- * for this grant, which is written `0600` and removed once canopy answers.
+ * whatever state the last call reached. Nothing here is secret.
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -154,22 +150,5 @@ export class GrantStore {
         `cannot read ${file} for grant ${logId}: ${(err as Error).message}`,
       );
     }
-  }
-
-  savePendingPayment(logId: string, header: string): void {
-    io(`cannot save the pending payment for grant ${logId}`, () =>
-      writeFileSync(this.path(logId, "payment.txt"), header, { mode: 0o600 }),
-    );
-  }
-
-  pendingPayment(logId: string): string | undefined {
-    const bytes = this.read(logId, "payment.txt");
-    return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
-  }
-
-  clearPendingPayment(logId: string): void {
-    io(`cannot remove the pending payment for grant ${logId}`, () =>
-      rmSync(this.path(logId, "payment.txt"), { force: true }),
-    );
   }
 }

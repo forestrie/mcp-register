@@ -83,9 +83,12 @@ them.
 | `MCP_REGISTER_PAY_ALLOW_MAINNET` | `1` to pay on a network that is not a testnet; off by default                    |
 
 The server pays only the canopy named in `FORESTRIE_BASE_URL`, and only for
-the request it made. Every authorisation it signs is written to the spend
-ledger before it is sent and counts toward the daily cap, whether or not it
-settles. USDC has 6 decimals, so `10000` is $0.01.
+the request it made. Every payment it signs for a grant uses a nonce derived
+from that grant, so the token contract can settle at most one of them: a
+retry or two overlapping calls never pay for one grant twice. Each signed
+payment is written to the spend ledger before it is sent and counts toward
+the daily cap whether or not it settles. The daily cap is approximate when
+calls overlap. USDC has 6 decimals, so `10000` is $0.01.
 
 ## Where grants come from
 

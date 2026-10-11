@@ -5,9 +5,8 @@
  * An entry is written BEFORE the payment is sent: once signed, an
  * authorisation can be settled whether or not this server ever sees
  * canopy's answer, so the daily cap counts every authorisation signed, not
- * only the ones known to have settled. Reads and the append are synchronous,
- * so within one server process a check and its reservation cannot
- * interleave with another call's.
+ * only the ones known to have settled. The cap is approximate under
+ * concurrency: two calls can both pass the check before either is written.
  */
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -63,12 +62,21 @@ export class SpendLedger {
     return out;
   }
 
-  /** Atomic units committed today on this network and asset. */
+  /**
+   * Atomic units committed today on this network and asset. Each nonce
+   * counts once: a retry re-signs a grant's payment with the same nonce,
+   * and at most one authorisation per nonce can ever settle.
+   */
   spentToday(now: Date, network: string, asset: string): bigint {
     let total = 0n;
-    for (const e of this.entries(now))
-      if (e.network === network && e.asset.toLowerCase() === asset)
-        total += BigInt(e.amount);
+    const seen = new Set<string>();
+    for (const e of this.entries(now)) {
+      if (e.network !== network || e.asset.toLowerCase() !== asset) continue;
+      const key = `${e.from.toLowerCase()} ${e.nonce.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      total += BigInt(e.amount);
+    }
     return total;
   }
 

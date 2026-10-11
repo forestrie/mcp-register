@@ -6,9 +6,9 @@
  *
  * register_grant is resumable by the child log id. Each call advances the
  * stored record as far as it can (issued → payment_required → accepted →
- * complete) and stops at the first thing it has to wait for. A payment, once
- * signed, is saved before it is sent and re-sent on every retry until canopy
- * answers, so one grant is never paid for twice.
+ * complete) and stops at the first thing it has to wait for. Every payment
+ * it signs for a grant carries a nonce derived from that grant, so one grant
+ * can never be paid for twice.
  *
  * Same contract as `tools.ts`: a refusal, an HTTP failure or bad input is a
  * `structuredContent.problem` with a `code`, never a throw.
@@ -19,9 +19,18 @@ import { NetError, fetchReceipt } from "@forestrie/mcp-resolve/net";
 import { base64ToBytes, bytesToBase64 } from "../core/base64.js";
 import { inspectGrant, type GrantView } from "../core/grant.js";
 import { toHex } from "../core/hex.js";
+
+function hexToBytes(hex: string): Uint8Array {
+  const h = hex.replace(/^0x/, "");
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++)
+    out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
 import {
   MAX_PARENT_GRANT_BYTES,
   completeGrant,
+  grantContent,
   issueChildGrant,
   parentGrantProblems,
   registerGrantBody,
@@ -35,6 +44,7 @@ import {
 } from "../core/scrapi.js";
 import {
   PaymentError,
+  grantPaymentNonce,
   readPaymentPayload,
   readPaymentRequired,
   selectWithinCaps,
@@ -308,17 +318,19 @@ function requirementsView(required: PaymentRequired) {
   };
 }
 
+/**
+ * No lock: paying twice for one grant is prevented by the nonce, not by
+ * serialising calls. Every authorisation this server signs for a grant
+ * carries `grantPaymentNonce(grant content, payer)`, so overlapping calls,
+ * a retry after a lost answer and other processes sharing the payer all
+ * sign the same nonce, and EIP-3009 settles at most one authorisation per
+ * (payer, nonce). The daily cap is approximate under concurrency: calls that
+ * pass the check before either records its payment can overshoot it by at
+ * most one per-call cap each.
+ */
 export function makeRegisterGrantTool(deps: ResolvedDeps) {
-  // One register_grant at a time per server. Two overlapping calls for one
-  // grant would otherwise both meet the 402 and both pay, and two for
-  // different grants could both pass the daily cap before either is in the
-  // ledger. Across processes sharing one home this is not enforced.
-  let queue: Promise<unknown> = Promise.resolve();
-  return (args: Args<typeof registerGrantInputShape>) => {
-    const run = queue.then(() => registerGrant(args, deps));
-    queue = run.catch(() => undefined);
-    return run;
-  };
+  return (args: Args<typeof registerGrantInputShape>) =>
+    registerGrant(args, deps);
 }
 
 function registerGrant(
@@ -402,15 +414,11 @@ function registerGrant(
         { fetchImpl: deps.fetchImpl },
       );
 
-    // A payment the caller relays, else one this server signed earlier and
-    // has not yet seen answered.
+    // A payment the caller relays from its own wallet.
     let payment: { header: string; via: "payer" | "relay" } | undefined;
     if (args.payment !== undefined) {
       readPaymentPayload(decodeHeaderJson(args.payment, "X-PAYMENT"));
       payment = { header: args.payment, via: "relay" };
-    } else {
-      const pending = store.pendingPayment(record.logId);
-      if (pending !== undefined) payment = { header: pending, via: "payer" };
     }
 
     let outcome = await sendOrReport(
@@ -477,9 +485,18 @@ function registerGrant(
           requirements: requirementsView(required),
         });
       }
+      const nonce = await grantPaymentNonce(
+        grantContent(grant),
+        hexToBytes(payer.address),
+      );
       let header: string;
       try {
-        header = await payer.pay(required, option);
+        header = await payer.pay({
+          required,
+          option,
+          nonce,
+          nowSeconds: Math.floor(now.getTime() / 1000),
+        });
       } catch (err) {
         return problemResult("register_grant", {
           code: "payer_failed",
@@ -492,13 +509,15 @@ function registerGrant(
       if (
         summary.value !== option.amount ||
         summary.to.toLowerCase() !== option.payTo.toLowerCase() ||
-        summary.network !== option.network
+        summary.network !== option.network ||
+        summary.nonce.toLowerCase() !== nonce
       )
         return problemResult("register_grant", {
           code: "invalid_payment",
-          message: `the payer signed ${summary.value} to ${summary.to} on ${summary.network}, not the ${option.amount} to ${option.payTo} on ${option.network} it was asked for; not sending it`,
+          message: `the payer signed ${summary.value} to ${summary.to} on ${summary.network} with nonce ${summary.nonce}, not the ${option.amount} to ${option.payTo} on ${option.network} with the grant's nonce ${nonce} it was asked for; not sending it`,
         });
-      // Committed from here: count it, keep it, then send it.
+      // Committed from here: count it, then send it. A retry re-signs with
+      // the same nonce, which the ledger counts once.
       deps.ledger.record(now, {
         at: now.toISOString(),
         network: option.network,
@@ -509,7 +528,6 @@ function registerGrant(
         nonce: summary.nonce,
         logId: record.logId,
       });
-      store.savePendingPayment(record.logId, header);
       payment = { header, via: "payer" };
       outcome = await sendOrReport(record, deps, () => send(header), payment);
       if ("content" in outcome) return outcome;
@@ -520,9 +538,8 @@ function registerGrant(
         decodeHeaderJson(payment.header, "X-PAYMENT"),
       );
       if (outcome.kind === "payment_required") {
-        // canopy refused the payment presented: it was not accepted, so
-        // it is dropped and the next call starts from the challenge.
-        store.clearPendingPayment(record.logId);
+        // canopy refused the payment presented: the next call starts from
+        // the challenge again.
         record.state = "payment_required";
         store.save(record);
         return problemResult("register_grant", {
@@ -550,7 +567,6 @@ function registerGrant(
       // Only reachable with a payment present, handled above.
       throw new Error("unreachable: payment_required after payment");
 
-    store.clearPendingPayment(record.logId);
     record.state = "accepted";
     record.statusUrl = outcome.statusUrl;
     record.acceptedAt = deps.now().toISOString();
@@ -581,7 +597,7 @@ async function sendOrReport(
     if (!(err instanceof NetError)) throw err;
     return problemResult("register_grant", {
       code: err.code,
-      message: `${err.message}. canopy may or may not have received the grant${payment ? " and the payment" : ""}. Call register_grant again with logId ${record.logId}: ${payment?.via === "payer" ? "the same payment is re-sent, never a second one" : payment ? "pass the same payment again" : "it is sent again unchanged"}.`,
+      message: `${err.message}. canopy may or may not have received the grant${payment ? " and the payment" : ""}. Call register_grant again with logId ${record.logId}: ${payment?.via === "payer" ? "it signs again with the grant's own nonce, so at most one payment can settle" : payment ? "pass the same payment again" : "it is sent again unchanged"}.`,
       logId: record.logId,
     });
   }

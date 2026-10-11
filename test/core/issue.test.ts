@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import { GrantError, inspectGrant } from "../../src/core/grant.js";
 import {
   completeGrant,
+  grantContent,
   issueChildGrant,
   parentGrantProblems,
   registerGrantBody,
@@ -72,6 +73,26 @@ describe("parentGrantProblems", () => {
     expect(
       parentGrantProblems(inspectGrant(read(grantPath)), xy).join(),
     ).toMatch(/not an authority-log grant/);
+  });
+});
+
+describe("grantContent", () => {
+  it("is the same for two signatures of one grant", async () => {
+    const input = {
+      logId: pg.childLogId,
+      ownerLogId: pg.authorityLogId,
+      grantData: logKeyXY,
+      maxHeight: 8,
+    };
+    const a = await issueChildGrant(input, await pgSigner());
+    const b = await issueChildGrant(input, await pgSigner());
+    expect(toHex(a.grant)).not.toBe(toHex(b.grant));
+    expect(toHex(grantContent(a.grant))).toBe(toHex(grantContent(b.grant)));
+    expect(toHex(grantContent(a.grant))).toBe(toHex(a.grantPayload));
+  });
+
+  it("refuses bytes that are not a grant", () => {
+    expect(() => grantContent(new Uint8Array([1, 2, 3]))).toThrow(GrantError);
   });
 });
 

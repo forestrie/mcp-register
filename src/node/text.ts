@@ -54,7 +54,7 @@ export const TOOL_DESCRIPTIONS: Record<ToolName, string> = {
   issue_grant:
     "As the requester, sign a child grant with this server's authority key: a data-log creation grant under your authority log (named by your authority grant, FORESTRIE_AUTHORITY_GRANT), naming the performer's log key (by default this server's own) and sized with maxHeight, the batch ceiling canopy prices it by. Saves the grant under a fresh child log id; nothing is sent. Call register_grant next.",
   register_grant:
-    "Register a child grant with canopy (POST /register/{R}/grants, your authority grant as the parent) and follow it to its receipt; call it again with the same logId to resume until it reports complete. If canopy answers 402 and a payer is configured, it pays within the server's hard caps (per call, per UTC day, one network and asset, testnet only by default) and reports any cap that refuses. With no payer it returns the payment requirements: pay them from your own x402 wallet and call again with payment set to the X-PAYMENT value. A payment, once signed, is re-sent on retry and never doubled. When complete it returns the completed grant for delegate_sealing and register_statement.",
+    "Register a child grant with canopy (POST /register/{R}/grants, your authority grant as the parent) and follow it to its receipt; call it again with the same logId to resume until it reports complete. If canopy answers 402 and a payer is configured, it pays within the server's hard caps (per call, per UTC day, one network and asset, testnet only by default) and reports any cap that refuses. With no payer it returns the payment requirements: pay them from your own x402 wallet and call again with payment set to the X-PAYMENT value. Every payment for a grant carries a nonce derived from that grant, so retries and overlapping calls can never pay for it twice. When complete it returns the completed grant for delegate_sealing and register_statement.",
 };
 
 /** Prompt names, in registration order. */
@@ -143,7 +143,7 @@ You never handle keys or signature bytes. The server signs grants with its autho
    - payment_required, no payer configured (relay mode): show the user the amount, asset, network and payee. Pay only with a wallet the user has authorised for this; give it the paymentRequiredHeader, then call register_grant again with the same logId and payment set to the X-PAYMENT value it returns. Never invent or edit a payment value.
    - a cap_… problem: the server's own limit refused the payment. Report which cap and the amounts. Do not try to get around it: do not split the grant to slip under a cap, switch canopy, or retry in a loop. A smaller grant (step 2) or the user's decision are the ways forward.
    - payment_rejected: canopy refused the payment; report its reason. Nothing was registered.
-   - a network error: call register_grant again with the same logId. It re-sends the same payment, never a second one.
+   - a network error: call register_grant again with the same logId. It signs with the grant's own nonce again, so at most one payment can ever settle.
 
 5. Wait. Call register_grant with the logId until it reports complete: pending and awaiting_seal mean wait (seconds, then about a minute) and call again. Sealing takes minutes.
 

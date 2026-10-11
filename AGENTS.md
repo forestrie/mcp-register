@@ -65,22 +65,36 @@ cover it.
 ## Paying
 
 The payer is a third key, and not an ES256 one: an EVM account behind the
-`PayerBackend` seam (`src/node/payer.ts`). The default backend is the
-upstream x402 client (`@x402/core` and `@x402/evm`'s exact scheme) over a
-viem account loaded from `MCP_REGISTER_PAYER_KEY_FILE`, refused like the log
-key if it is a symlink or readable by others. An embedder passes its own
+`PayerBackend` seam (`src/node/payer.ts`). The default backend is a viem
+account loaded from `MCP_REGISTER_PAYER_KEY_FILE`, refused like the log key
+if it is a symlink or readable by others. An embedder passes its own
 (`createServer({ payer })`). It is never created, and with none configured
 `register_grant` runs in relay mode: it returns canopy's payment
 requirements and resumes on a call that carries the caller's `X-PAYMENT`.
+
+**One grant is never paid for twice, by construction.** Every EIP-3009
+authorisation this server signs for a grant carries
+`grantPaymentNonce(grant content, payer address)` (`src/core/x402.ts`), and
+the token contract settles at most one authorisation per (payer, nonce);
+canopy's claim and settlement de-duplication are keyed by the nonce too. So
+overlapping calls, a retry after a lost answer and a second process sharing
+the payer all sign the same nonce, and there is no lock. `register_grant`
+refuses to send a payment that does not carry it, so a hosted-wallet
+`PayerBackend` must honour the nonce it is given. The upstream x402 client
+(`@x402/evm`) draws a random nonce and cannot be given one, so the default
+backend builds the same payload itself; `test/node/payer.test.ts` checks it
+field for field against the upstream client, which is a dev dependency only.
 
 The caps (`MCP_REGISTER_PAY_*`) are read from the environment and never from
 a tool argument; `test/node/mcp-smoke.test.ts` asserts no input schema has a
 cap or payer field. `src/core/x402.ts` applies them in a fixed order
 (testnet only, network, asset, payee, resource, per call, per day), and
-`register_grant` refuses any canopy other than `FORESTRIE_BASE_URL`. A
-payment is written to the spend ledger (`<home>/payments/<UTC day>.jsonl`)
-and to the grant's `payment.txt` before it is sent, and a retry re-sends that
-same payment, so one grant is never paid for twice.
+`register_grant` refuses any canopy other than `FORESTRIE_BASE_URL`. Each
+signed payment is written to the spend ledger
+(`<home>/payments/<UTC day>.jsonl`) before it is sent; a nonce counts once.
+The daily cap is approximate under concurrency, deliberately: calls that pass
+the check before either is recorded can overshoot it by one per-call cap
+each.
 
 Signature bytes never cross the MCP boundary as tool inputs: a tool takes the
 payload to sign, not a signature. `test/node/mcp-smoke.test.ts` asserts that
