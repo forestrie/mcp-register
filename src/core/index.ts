@@ -25,17 +25,45 @@ export {
   statementGrantProblems,
 } from "./grant.js";
 export type { GrantView } from "./grant.js";
+export {
+  MAX_PARENT_GRANT_BYTES,
+  completeGrant,
+  dataLogCreateExtendFlags,
+  issueChildGrant,
+  parentGrantProblems,
+  registerGrantBody,
+} from "./issue.js";
+export type { IssueGrantInput, IssuedGrant } from "./issue.js";
+export {
+  DEFAULT_PAY_ASSET,
+  DEFAULT_PAY_NETWORK,
+  PaymentError,
+  TESTNETS,
+  readPaymentPayload,
+  readPaymentRequired,
+  selectWithinCaps,
+} from "./x402.js";
+export type {
+  CapContext,
+  CapRefusalCode,
+  PaymentCaps,
+  PaymentOption,
+  PaymentRequired,
+  PaymentSummary,
+} from "./x402.js";
 export { StatementError, signStatement } from "./statement.js";
 export type { SignStatementInput, SignedStatement } from "./statement.js";
 export {
   readProblem,
   readReceiptResponse,
+  readRegisterGrantResponse,
   readRegisterResponse,
   readStatusResponse,
 } from "./scrapi.js";
 export type {
   Problem,
   ReceiptOutcome,
+  RegisterGrantOutcome,
   RegisterOutcome,
   ResponseView,
   StatusOutcome,

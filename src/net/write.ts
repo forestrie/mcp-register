@@ -8,6 +8,9 @@
  *
  *  - canopy `POST /register/{R}/entries`, the statement as
  *    `application/cose`, authorised by `Forestrie-Grant <base64>`;
+ *  - canopy `POST /register/{R}/grants`, the child grant as
+ *    `Forestrie-Grant <base64>`, the parent grant in a CBOR body, and an
+ *    `X-PAYMENT` when paying canopy's 402;
  *  - canopy `POST /api/forest/{childLogId}/prepare`, no body, the same
  *    grant: publishes the child log's public root to the delegation
  *    coordinator when register-grant's auto-forward did not;
@@ -36,6 +39,38 @@ export function postStatement(
         authorization: `Forestrie-Grant ${input.grantB64}`,
       },
       body: input.statement,
+    },
+    opts,
+  );
+}
+
+/** The URL `postGrant` POSTs: also the x402 resource a payment is for. */
+export function registerGrantUrl(baseUrl: string, rootLogId: string): string {
+  return `${trimBase(baseUrl)}/register/${encodeURIComponent(rootLogId)}/grants`;
+}
+
+export function postGrant(
+  input: {
+    baseUrl: string;
+    rootLogId: string;
+    grantB64: string;
+    /** `registerGrantBody(parentGrant)`: canonical CBOR `{parentGrant}`. */
+    body: Uint8Array;
+    /** The `X-PAYMENT` header value, when paying. */
+    payment?: string;
+  },
+  opts?: FetchOptions,
+): Promise<RawResponse> {
+  return rawRequest(
+    registerGrantUrl(input.baseUrl, input.rootLogId),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/cbor",
+        authorization: `Forestrie-Grant ${input.grantB64}`,
+        ...(input.payment !== undefined ? { "x-payment": input.payment } : {}),
+      },
+      body: input.body,
     },
     opts,
   );

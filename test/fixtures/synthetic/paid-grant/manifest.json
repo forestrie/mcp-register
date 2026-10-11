@@ -1,0 +1,24 @@
+{
+  "generatedBy": "generate.mjs",
+  "files": {
+    "PROVENANCE.md": "68361326b392dc10ab40d1ed0b092be80169d72d674858c06c9947938a8c999a",
+    "authority-grant-free.cose": "7e03797ca26a1d77186828a580222bd5a77b123825e5a580ce0a34dd0f286dc6",
+    "authority-grant.cose": "51c7e6527207557d924931c077ec5ba3b8c3de2eacb5be1094f6c031f5711ce3",
+    "authority-key.jwk.json": "c96e0d8ce0e38241f41ce88ac8d4f1a602d751a695c29d559db541b74d760947",
+    "coordinates.json": "41b824a41863a09833c7d6551857ddb023f4be29452f13c30e12fa6a7493c842",
+    "grant-receipt-200.body": "d727494d1592665a3ca6a3452369991f6d9cfdc16fb91bb6ff8f2867f9ebb3fd",
+    "grant-receipt-200.meta.json": "9dda96c058b3bca438b49be60808a7e75ea2e65eaae1ab980479b94fd4a33f82",
+    "grant-receipt-404.body": "4170be41d9c901a05cf9d0d70e858f34744b755bb080c489d526aaae6863f567",
+    "grant-receipt-404.meta.json": "b23bed04e554d6348f5cbcaa3077ff3b8da8544614a39559a5c2d5e1b889b56b",
+    "grant-status-pending.meta.json": "50916725118694e463fcda3d6ae22b2d60200822a259ca126fc8b43916cbd3b7",
+    "grant-status-sequenced.meta.json": "5f31c0d14e5fbbe7cc9884fdfd5bf43f9490187f392449241bdab089f666f625",
+    "principal-key.jwk.json": "e4c65bd245c0907151b850c11b01aa5d4d74d6b39270861b9a0217ea7fc2e2d2",
+    "register-grant-303.meta.json": "ded43ae97767f24753c16ce3f2d67eb11478b91ff64bb05ffeebb7516c173236",
+    "register-grant-402-refused.body": "0893261316f5109044cc6ad0888089e47d55897ccdb2583f4ce44f3f218ff0c7",
+    "register-grant-402-refused.meta.json": "e26cdb5aba047c660b79a577212ba30476b95d62ca449e112a3bc39708638462",
+    "register-grant-402.body": "a4b16ea8b1ca5a3b6dfc6a6a3b222acf358ae2eea01dab318e8750f8eaee9768",
+    "register-grant-402.meta.json": "2137a03ed259f3312086bb73cc19f0f38ae28f1fea66a98fdfb22b2aad71f90e",
+    "register-grant-409.body": "c4cb8beb44a9e17516c830cadcf28ec682d92215fe096e63f7a08c475dd4c27f",
+    "register-grant-409.meta.json": "6a6e0bbc622060ab9d1a4fa7a1aab02a836856d6312e20dc6f5facbd3f853c13"
+  }
+}

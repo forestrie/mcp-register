@@ -8,8 +8,10 @@ This repo is the write path of the Forestrie MCP trio: it signs statements
 with a log key held behind a signer backend, registers them under a
 Forestrie-Grant the caller holds, delegates sealing for the caller's data log,
 and verifies the receipt by composing `@forestrie/mcp-resolve` (fetching) and
-`@forestrie/mcp-verify` (verifying) as libraries. It never handles money in
-this release.
+`@forestrie/mcp-verify` (verifying) as libraries. As the requester it also
+issues child grants with a separate authority key and registers them,
+paying canopy's x402 charge through a payer backend within hard caps, or
+relaying the payment requirements when no payer is configured.
 
 **`@forestrie/mcp-verify` and `@forestrie/mcp-resolve` are dependencies, never
 siblings; changes to them happen in their repos.** This package imports only
@@ -45,10 +47,40 @@ if it is a symlink or accessible to other users. Read-only tools open it
 without creating it. An embedder passes its own signer
 (`createServer({ signer })`) for a KMS or a remote signer.
 
+The requester's authority key, which signs the child grants `issue_grant`
+makes, is a second ES256 key behind the same seam (`authoritySigner`), in its
+own file (`authority-key.jwk`, or `MCP_REGISTER_AUTHORITY_KEY_FILE`). It is
+separate from the log key so that whoever can write to the data log cannot
+issue grants under the authority log. `src/core/issue.ts` builds the grant
+bytes of `@forestrie/grant-builder`'s ES256 profile over the seam;
+`test/node/grant-tools.test.ts` asserts they equal grant-builder's own
+output (a dev dependency only) but for the signature.
+
 No `{path}` input (a payload, a grant, a known accumulator) may resolve to
-the key file or anywhere under the server's home: otherwise a
-prompt-injected caller could have the private key signed and registered on a
-public log. `test/node/tools.test.ts` covers it.
+any key file or anywhere under the server's home: otherwise a
+prompt-injected caller could have a private key signed and registered on a
+public log. `test/node/tools.test.ts` and `test/node/grant-tools.test.ts`
+cover it.
+
+## Paying
+
+The payer is a third key, and not an ES256 one: an EVM account behind the
+`PayerBackend` seam (`src/node/payer.ts`). The default backend is the
+upstream x402 client (`@x402/core` and `@x402/evm`'s exact scheme) over a
+viem account loaded from `MCP_REGISTER_PAYER_KEY_FILE`, refused like the log
+key if it is a symlink or readable by others. An embedder passes its own
+(`createServer({ payer })`). It is never created, and with none configured
+`register_grant` runs in relay mode: it returns canopy's payment
+requirements and resumes on a call that carries the caller's `X-PAYMENT`.
+
+The caps (`MCP_REGISTER_PAY_*`) are read from the environment and never from
+a tool argument; `test/node/mcp-smoke.test.ts` asserts no input schema has a
+cap or payer field. `src/core/x402.ts` applies them in a fixed order
+(testnet only, network, asset, payee, resource, per call, per day), and
+`register_grant` refuses any canopy other than `FORESTRIE_BASE_URL`. A
+payment is written to the spend ledger (`<home>/payments/<UTC day>.jsonl`)
+and to the grant's `payment.txt` before it is sent, and a retry re-sends that
+same payment, so one grant is never paid for twice.
 
 Signature bytes never cross the MCP boundary as tool inputs: a tool takes the
 payload to sign, not a signature. `test/node/mcp-smoke.test.ts` asserts that
@@ -144,6 +176,13 @@ prompts (`src/node/text.ts`) is deliberate; change it on purpose, never in
 passing.
 
 ## Fixtures
+
+`test/fixtures/synthetic/paid-grant/` is synthesised the same way from
+canopy's register-grant and x402 source (the 402 challenge, a refused
+payment, the 303, the grant's status and receipt); there is no facilitator
+in it. `test/net/stub-facilitator.ts` stands in for one: it verifies each
+`X-PAYMENT`'s EIP-712 signature and terms against the recorded challenge and
+picks canopy's answer accordingly.
 
 `test/fixtures/lane-a-0.5.0/` is real: lane A recordings copied verbatim from
 `@forestrie/mcp-resolve`'s frozen fixtures, used to prove the status, receipt

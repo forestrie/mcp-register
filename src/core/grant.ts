@@ -42,6 +42,11 @@ export interface GrantView {
   statementRegistrationGrant: boolean;
   /** GF_CREATE and GF_EXTEND: the creation grant prepare requires. */
   createAndExtend: boolean;
+  /** GF_AUTH_LOG without GF_DATA_LOG: an authority log, which can own children. */
+  authLog: boolean;
+  /** GF_DERIVED with GF_CHILD_PAYMENT_REQUIRED (adr-0062): registering a
+   *  child grant under this one is x402 payment-gated where canopy enables it. */
+  requiresChildPayment: boolean;
 }
 
 export function inspectGrant(credential: Uint8Array): GrantView {
@@ -69,6 +74,8 @@ export function inspectGrant(credential: Uint8Array): GrantView {
     statementRegistrationGrant:
       dataLog || ((low & 0x03) === 0x01 && (byte3 & 0x03) === 0x03),
     createAndExtend: (byte3 & 0x03) === 0x03,
+    authLog: (low & 0x03) === 0x01,
+    requiresChildPayment: (byte3 & 0x0c) === 0x0c,
   };
 }
 

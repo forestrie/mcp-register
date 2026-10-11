@@ -15,7 +15,9 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { generate as generatePaidGrant } from "../fixtures/synthetic/paid-grant/generate.mjs";
 import { generate } from "../fixtures/synthetic/write-path/generate.mjs";
+import { PAID_GRANT_DIR } from "../net/paid-grant-fixture.js";
 import { LANE_A_DIR, WRITE_PATH_DIR } from "../net/write-path-fixture.js";
 
 function sha256Hex(file: string): string {
@@ -46,6 +48,45 @@ describe("fixture manifests", () => {
   it("lane-a-0.5.0 matches its manifest", () => checkManifest(LANE_A_DIR));
   it("synthetic/write-path matches its manifest", () =>
     checkManifest(WRITE_PATH_DIR));
+  it("synthetic/paid-grant matches its manifest", () =>
+    checkManifest(PAID_GRANT_DIR));
+});
+
+describe("synthetic/paid-grant generator", () => {
+  it("reproduces every unsigned file from the committed keys", async () => {
+    const tmp = mkdtempSync(path.join(tmpdir(), "paid-grant-"));
+    try {
+      for (const f of readdirSync(PAID_GRANT_DIR).filter((n) =>
+        n.endsWith(".jwk.json"),
+      ))
+        cpSync(path.join(PAID_GRANT_DIR, f), path.join(tmp, f));
+      const result = await generatePaidGrant(tmp);
+      const signed = new Set([
+        "authority-grant.cose",
+        "authority-grant-free.cose",
+        "manifest.json",
+      ]);
+      for (const name of result.files) {
+        if (signed.has(name)) continue;
+        expect(sha256Hex(path.join(tmp, name)), name).toBe(
+          sha256Hex(path.join(PAID_GRANT_DIR, name)),
+        );
+      }
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("commits only test-only keys, each with the loud warning", () => {
+    for (const f of readdirSync(PAID_GRANT_DIR).filter((n) =>
+      n.endsWith(".jwk.json"),
+    )) {
+      const jwk = JSON.parse(
+        readFileSync(path.join(PAID_GRANT_DIR, f), "utf8"),
+      );
+      expect(jwk.warning, f).toMatch(/^TEST ONLY\./);
+    }
+  });
 });
 
 describe("synthetic/write-path generator", () => {

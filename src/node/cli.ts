@@ -67,10 +67,24 @@ CONFIGURATION (each overridable per call)
   FORESTRIE_BASE_URL          canopy SCRAPI base URL
   FORESTRIE_ROOT_LOG_ID       the forest's root log id (R in /register/{R}/entries)
   FORESTRIE_GRANT             your Forestrie-Grant: base64, or a file path
+  FORESTRIE_AUTHORITY_GRANT   your authority log's grant, for issue_grant and register_grant
   FORESTRIE_COORDINATOR_URL   delegation coordinator, for delegate_sealing
   FORESTRIE_KNOWN_SEALER_KEY  registrar voucher key, base64 x‖y, for delegate_sealing
-  MCP_REGISTER_HOME           key file and registrations (default ~/.config/forestrie/mcp-register)
+  MCP_REGISTER_HOME           key files, grants, registrations, spend ledger
+                              (default ~/.config/forestrie/mcp-register)
   MCP_REGISTER_KEY_FILE       the log key file (default $MCP_REGISTER_HOME/log-key.jwk)
+  MCP_REGISTER_AUTHORITY_KEY_FILE
+                              the authority key file (default $MCP_REGISTER_HOME/authority-key.jwk)
+
+PAYMENT (configuration only; never a tool argument)
+  MCP_REGISTER_PAYER_KEY_FILE     EVM private key (0x + 64 hex, mode 600) that pays canopy's
+                                  x402 402; unset means relay mode
+  MCP_REGISTER_PAY_MAX_PER_CALL   cap per payment, atomic units (required with a payer)
+  MCP_REGISTER_PAY_MAX_PER_DAY    cap per UTC day, atomic units (required with a payer)
+  MCP_REGISTER_PAY_NETWORK        the one network (default eip155:84532, Base Sepolia)
+  MCP_REGISTER_PAY_ASSET          the one asset (default USDC on Base Sepolia)
+  MCP_REGISTER_PAY_TO             optional: the only payee
+  MCP_REGISTER_PAY_ALLOW_MAINNET  1 to pay on a network that is not a testnet (off)
 
 CLIENT CONFIG
   {"mcpServers": {"forestrie-register":

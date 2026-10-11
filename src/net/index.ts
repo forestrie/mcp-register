@@ -13,7 +13,9 @@ export {
   getPendingDelegation,
   getRegistrationStatus,
   postDelegationCertificate,
+  postGrant,
   postStatement,
+  registerGrantUrl,
   prepareChildLog,
 } from "./write.js";
 export { delegateSealing } from "./delegate.js";

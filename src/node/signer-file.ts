@@ -65,7 +65,7 @@ function isP256PrivateJwk(v: unknown): v is P256Jwk {
  * fails (EEXIST) if another process got there first, in which case its key
  * is used. The temporary file is always removed.
  */
-async function createKeyFile(path: string): Promise<void> {
+async function createKeyFile(path: string, note: string): Promise<void> {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const pair = (await subtle.generateKey(
     { name: "ECDSA", namedCurve: "P-256" },
@@ -81,7 +81,7 @@ async function createKeyFile(path: string): Promise<void> {
     d: jwk.d,
     use: "sig",
     alg: "ES256",
-    note: "Forestrie log key for @forestrie/mcp-register. Grants name its public x‖y; keep this file private.",
+    note,
   };
   const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
   try {
@@ -104,6 +104,30 @@ async function createKeyFile(path: string): Promise<void> {
   }
 }
 
+/**
+ * The two ES256 keys this server can hold. The log key owns the performer's
+ * data log; the authority key owns the requester's authority log and signs
+ * the child grants issue_grant makes. They are separate files so that
+ * whoever can write to one log cannot issue grants under the other.
+ */
+export type KeyRole = "log" | "authority";
+
+const KEY_ROLES: Record<
+  KeyRole,
+  { label: string; note: string; createdBy: string }
+> = {
+  log: {
+    label: "log key",
+    note: "Forestrie log key for @forestrie/mcp-register. Grants name its public x‖y; keep this file private.",
+    createdBy: "get_log_key or register_statement",
+  },
+  authority: {
+    label: "authority key",
+    note: "Forestrie authority key for @forestrie/mcp-register: owns the requester's authority log and signs the child grants issue_grant makes. Keep this file private.",
+    createdBy: 'get_log_key with which: "authority", or issue_grant,',
+  },
+};
+
 export interface KeyFileSigner extends Es256Signer {
   readonly path: string;
   /** True when this process created the key file. */
@@ -121,20 +145,22 @@ export interface KeyFileSigner extends Es256Signer {
  */
 export async function openKeyFileSigner(
   path: string,
-  options: { create?: boolean } = {},
+  options: { create?: boolean; role?: KeyRole } = {},
 ): Promise<KeyFileSigner> {
+  const role = options.role ?? "log";
+  const label = KEY_ROLES[role].label;
   let created = false;
   let stat = lstatOrUndefined(path);
   if (stat === undefined) {
     if (options.create === false)
       throw new KeyFileError(
-        `no log key at ${path} yet: get_log_key or register_statement creates it`,
+        `no ${label} at ${path} yet: ${KEY_ROLES[role].createdBy} creates it`,
       );
     try {
-      await createKeyFile(path);
+      await createKeyFile(path, KEY_ROLES[role].note);
     } catch (err) {
       throw new KeyFileError(
-        `cannot create the log key file ${path}: ${(err as Error).message}`,
+        `cannot create the ${label} file ${path}: ${(err as Error).message}`,
       );
     }
     created = true;
@@ -142,29 +168,29 @@ export async function openKeyFileSigner(
   }
   if (stat === undefined || stat.isSymbolicLink() || !stat.isFile())
     throw new KeyFileError(
-      `the log key path ${path} is not a regular file (a symlink or directory is refused)`,
+      `the ${label} path ${path} is not a regular file (a symlink or directory is refused)`,
     );
   if ((stat.mode & 0o077) !== 0)
     throw new KeyFileError(
-      `the log key file ${path} is accessible to other users (mode ${(stat.mode & 0o777).toString(8)}); chmod 600 it`,
+      `the ${label} file ${path} is accessible to other users (mode ${(stat.mode & 0o777).toString(8)}); chmod 600 it`,
     );
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch (err) {
     throw new KeyFileError(
-      `cannot read the log key file ${path}: ${(err as Error).message}`,
+      `cannot read the ${label} file ${path}: ${(err as Error).message}`,
     );
   }
   let jwk: unknown;
   try {
     jwk = JSON.parse(text);
   } catch {
-    throw new KeyFileError(`the log key file ${path} is not JSON`);
+    throw new KeyFileError(`the ${label} file ${path} is not JSON`);
   }
   if (!isP256PrivateJwk(jwk))
     throw new KeyFileError(
-      `the log key file ${path} is not a P-256 private JWK (kty EC, crv P-256, x, y, d)`,
+      `the ${label} file ${path} is not a P-256 private JWK (kty EC, crv P-256, x, y, d)`,
     );
   let privateKey: CryptoKey;
   try {
@@ -177,7 +203,7 @@ export async function openKeyFileSigner(
     );
   } catch {
     throw new KeyFileError(
-      `the log key file ${path} holds an invalid P-256 key`,
+      `the ${label} file ${path} holds an invalid P-256 key`,
     );
   }
   const xy = new Uint8Array(64);
@@ -187,7 +213,7 @@ export async function openKeyFileSigner(
   return {
     path,
     created,
-    description: `local key file ${path}`,
+    description: `local ${label} file ${path}`,
     publicKeyXY: async () => xy.slice(),
     sign: async (message) =>
       new Uint8Array(
@@ -200,13 +226,26 @@ export async function openKeyFileSigner(
   };
 }
 
+/** SubjectPublicKeyInfo DER prefix for an uncompressed P-256 point. */
+const P256_SPKI_PREFIX = Buffer.from(
+  "3059301306072a8648ce3d020106082a8648ce3d030107034200",
+  "hex",
+);
+
+/** The public key as an SPKI PEM, the form forestrie-cli's `--signer-pem` reads. */
+export function publicKeyPem(xy: Uint8Array): string {
+  const der = Buffer.concat([P256_SPKI_PREFIX, Buffer.from([0x04]), xy]);
+  const b64 = der.toString("base64").replace(/(.{64})/g, "$1\n");
+  return `-----BEGIN PUBLIC KEY-----\n${b64}\n-----END PUBLIC KEY-----\n`;
+}
+
 function lstatOrUndefined(path: string) {
   try {
     return lstatSync(path);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw new KeyFileError(
-      `cannot stat the log key path ${path}: ${(err as Error).message}`,
+      `cannot stat the key path ${path}: ${(err as Error).message}`,
     );
   }
 }
