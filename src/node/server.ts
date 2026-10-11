@@ -9,18 +9,15 @@
  *
  * The signer is a seam: pass `deps.signer` to use a KMS or a remote signer.
  * Without one, the default opens the local key file
- * (`MCP_REGISTER_KEY_FILE`, else `<MCP_REGISTER_HOME>/log-key.jwk`) at the
+ * (`MCP_REGISTER_KEY_FILE`, else `log-key.jwk` in the home) at the
  * first tool call that needs it, creating it then if it does not exist.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { PACKAGE_VERSION } from "../core/index.js";
 import type { Es256Signer } from "../core/signer.js";
-import {
-  defaultKeyFilePath,
-  openKeyFileSigner,
-  registerHome,
-} from "./signer-file.js";
+import { join } from "node:path";
+import { openKeyFileSigner, registerHome } from "./signer-file.js";
 import { RegistrationStore } from "./store.js";
 import {
   INSTRUCTIONS,
@@ -75,21 +72,27 @@ const WRITE = {
 
 export function createServer(deps: Deps = {}): McpServer {
   const env = deps.env ?? process.env;
+  const home = deps.home ?? registerHome(env);
+  const keyFile = env["MCP_REGISTER_KEY_FILE"] ?? join(home, "log-key.jwk");
   let opened: Promise<Es256Signer & { created?: boolean }> | undefined;
+  const open = (create: boolean) =>
+    openKeyFileSigner(keyFile, { create }).catch((err: unknown) => {
+      opened = undefined;
+      throw err;
+    });
   const resolved: ResolvedDeps = {
     fetchImpl: deps.fetchImpl ?? ((...a) => globalThis.fetch(...a)),
     env,
     now: deps.now ?? (() => new Date()),
-    signer: () =>
-      deps.signer !== undefined
-        ? Promise.resolve(deps.signer)
-        : (opened ??= openKeyFileSigner(defaultKeyFilePath(env)).catch(
-            (err: unknown) => {
-              opened = undefined;
-              throw err;
-            },
-          )),
-    store: new RegistrationStore(deps.home ?? registerHome(env)),
+    signer: (options) => {
+      if (deps.signer !== undefined) return Promise.resolve(deps.signer);
+      if (opened !== undefined) return opened;
+      // A no-create open is not remembered: a later call may create.
+      if (options?.create === false) return open(false);
+      return (opened = open(true));
+    },
+    protectedPaths: [keyFile, home],
+    store: new RegistrationStore(home),
     ...(deps.sleep !== undefined ? { sleep: deps.sleep } : {}),
   };
 
@@ -149,7 +152,8 @@ export function createServer(deps: Deps = {}): McpServer {
       title: TOOL_TITLES.verify_registration,
       description: TOOL_DESCRIPTIONS.verify_registration,
       inputSchema: verifyRegistrationInputShape,
-      // Offline: reads the local store and the key's public half only.
+      // Offline: reads the local store and the key's public half only; never
+      // creates a key.
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,

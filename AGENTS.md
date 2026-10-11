@@ -39,8 +39,16 @@ delegation certificate, the on-chain delegation proof — goes through one seam,
 `Es256Signer` (`src/core/signer.ts`): `src/core` builds the exact bytes to be
 signed and calls `sign(bytes)`; it never holds a key. The default backend,
 `src/node/signer-file.ts`, keeps a P-256 JWK in a local file it creates on
-first use (`0600`, exclusive create, never overwritten). An embedder passes
-its own signer (`createServer({ signer })`) for a KMS or a remote signer.
+first use: `0600` in a `0700` directory, written aside and hard-linked into
+place (atomic, never overwritten), and refused, as ssh refuses a loose key,
+if it is a symlink or accessible to other users. Read-only tools open it
+without creating it. An embedder passes its own signer
+(`createServer({ signer })`) for a KMS or a remote signer.
+
+No `{path}` input (a payload, a grant, a known accumulator) may resolve to
+the key file or anywhere under the server's home: otherwise a
+prompt-injected caller could have the private key signed and registered on a
+public log. `test/node/tools.test.ts` covers it.
 
 Signature bytes never cross the MCP boundary as tool inputs: a tool takes the
 payload to sign, not a signature. `test/node/mcp-smoke.test.ts` asserts that

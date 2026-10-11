@@ -34,6 +34,12 @@ export interface GrantView {
   maxHeight?: number;
   /** GF_EXTEND with GF_DATA_LOG and not GF_AUTH_LOG. */
   dataLogStatementGrant: boolean;
+  /**
+   * canopy's `isStatementRegistrationGrant`: a data-log statement grant, or
+   * an auth-log bootstrap grant (GF_AUTH_LOG only, with GF_CREATE|GF_EXTEND),
+   * whose grantData likewise binds the statement signer.
+   */
+  statementRegistrationGrant: boolean;
   /** GF_CREATE and GF_EXTEND: the creation grant prepare requires. */
   createAndExtend: boolean;
 }
@@ -51,32 +57,38 @@ export function inspectGrant(credential: Uint8Array): GrantView {
   const flags = grant.grant;
   const byte3 = flags.length >= 8 ? flags[3]! : 0;
   const low = flags.length >= 8 ? flags[7]! : 0;
+  const dataLog =
+    (byte3 & 0x02) !== 0 && (low & 0x02) !== 0 && (low & 0x01) === 0;
   return {
     logId: bytesToUuid(grant.logId),
     ownerLogId: bytesToUuid(grant.ownerLogId),
     flagsHex: toHex(flags),
     grantData: grantDataToBytes(grant.grantData),
     ...(grant.maxHeight !== undefined ? { maxHeight: grant.maxHeight } : {}),
-    dataLogStatementGrant:
-      (byte3 & 0x02) !== 0 && (low & 0x02) !== 0 && (low & 0x01) === 0,
+    dataLogStatementGrant: dataLog,
+    statementRegistrationGrant:
+      dataLog || ((low & 0x03) === 0x01 && (byte3 & 0x03) === 0x03),
     createAndExtend: (byte3 & 0x03) === 0x03,
   };
 }
 
 /**
  * Why this grant cannot carry statements signed by `signerXY`, or `[]`.
- * Mirrors canopy's register-signed-statement admission.
+ * Mirrors canopy's register-signed-statement admission
+ * (`isStatementRegistrationGrant`, the data-log owner rule, the signer
+ * binding).
  */
 export function statementGrantProblems(
   grant: GrantView,
   signerXY: Uint8Array,
 ): string[] {
   const problems: string[] = [];
-  if (!grant.dataLogStatementGrant)
+  if (!grant.statementRegistrationGrant)
     problems.push(
-      `grant flags ${grant.flagsHex} do not authorise statement registration on a data log (need GF_EXTEND and GF_DATA_LOG)`,
+      `grant flags ${grant.flagsHex} do not authorise statement registration (need GF_DATA_LOG with GF_EXTEND, or GF_AUTH_LOG with GF_CREATE|GF_EXTEND)`,
     );
-  if (grant.logId === grant.ownerLogId)
+  // canopy applies the distinct-owner rule to data-log grants only.
+  if (grant.dataLogStatementGrant && grant.logId === grant.ownerLogId)
     problems.push(
       "a data-log grant must name a log other than its owner (logId equals ownerLogId)",
     );

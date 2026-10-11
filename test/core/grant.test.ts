@@ -56,19 +56,41 @@ describe("statementGrantProblems", () => {
     expect(problems[0]).toMatch(/different key/);
   });
 
-  it("refuses a grant without GF_DATA_LOG, an owner==log grant, and non-ES256 grantData", () => {
+  it("refuses flags that authorise no statements, and non-ES256 grantData", () => {
     const bad: GrantView = {
       ...grant,
-      flagsHex: "0000000300000001",
+      flagsHex: "0000000000000002",
       dataLogStatementGrant: false,
-      logId: grant.ownerLogId,
+      statementRegistrationGrant: false,
       grantData: new Uint8Array(20),
     };
     const problems = statementGrantProblems(bad, logKeyXY);
-    expect(problems.join("\n")).toMatch(/GF_DATA_LOG/);
-    expect(problems.join("\n")).toMatch(/logId equals ownerLogId/);
+    expect(problems.join("\n")).toMatch(
+      /do not authorise statement registration/,
+    );
     expect(problems.join("\n")).toMatch(/20 bytes/);
-    expect(problems).toHaveLength(3);
+    expect(problems).toHaveLength(2);
+  });
+
+  it("refuses a data-log grant whose log is its own owner", () => {
+    const problems = statementGrantProblems(
+      { ...grant, logId: grant.ownerLogId },
+      logKeyXY,
+    );
+    expect(problems).toEqual([
+      expect.stringMatching(/logId equals ownerLogId/),
+    ]);
+  });
+
+  it("accepts an auth-log bootstrap grant, as canopy's isStatementRegistrationGrant does", () => {
+    const authBootstrap: GrantView = {
+      ...grant,
+      flagsHex: "0000000300000001",
+      dataLogStatementGrant: false,
+      statementRegistrationGrant: true,
+      logId: grant.ownerLogId,
+    };
+    expect(statementGrantProblems(authBootstrap, logKeyXY)).toEqual([]);
   });
 });
 

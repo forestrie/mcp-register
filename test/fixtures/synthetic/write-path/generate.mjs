@@ -288,13 +288,13 @@ function defineExchanges(c, standingEntry, badStandingEntry) {
     url: receiptUrl,
     status: 404,
     contentType: PROBLEM,
+    // canopy's resolve-receipt: notFound(what) puts the reason in `title`.
     body: encodeProblemDetailsCbor({
       type: "about:blank",
-      title: "Not Found",
+      title: "Entry receipt not found (checkpoint missing)",
       status: 404,
-      detail: "no sealed checkpoint covers this entry yet",
     }),
-    note: "Sequenced but not yet sealed.",
+    note: "Sequenced but not yet sealed: no checkpoint yet.",
   });
   addExchange("receipt-200", {
     method: "GET",

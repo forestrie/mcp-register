@@ -18,6 +18,7 @@ import type { FetchOptions } from "@forestrie/mcp-resolve/net";
 import {
   buildCertificateSubmission,
   checkVoucher,
+  type CertificateSubmission,
   DelegationError,
   findStandingEntry,
   type StandingEntry,
@@ -187,17 +188,29 @@ export async function delegateSealing(
     };
   }
 
-  const submission = await buildCertificateSubmission(
-    {
-      logId,
-      standing,
-      ...(input.mmrEnd !== undefined ? { mmrEnd: input.mmrEnd } : {}),
-      ...(input.ttlSeconds !== undefined
-        ? { ttlSeconds: input.ttlSeconds }
-        : {}),
-    },
-    signer,
-  );
+  let submission: CertificateSubmission;
+  try {
+    submission = await buildCertificateSubmission(
+      {
+        logId,
+        standing,
+        ...(input.mmrEnd !== undefined ? { mmrEnd: input.mmrEnd } : {}),
+        ...(input.ttlSeconds !== undefined
+          ? { ttlSeconds: input.ttlSeconds }
+          : {}),
+      },
+      signer,
+    );
+  } catch (err) {
+    // A malformed standing key, a bad ttl or a signer failure: report it
+    // at its stage rather than as a raw throw.
+    return {
+      kind: "problem",
+      stage: "certificate",
+      message: `could not build the delegation certificate: ${err instanceof Error ? err.message : String(err)}`,
+      prepared,
+    };
+  }
   const res = await postDelegationCertificate(
     { coordinatorUrl: input.coordinatorUrl, submission },
     opts,

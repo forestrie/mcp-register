@@ -4,8 +4,9 @@
  *
  * Proportionate custody for what the key can do: it owns one data log
  * whose grant someone else issued and bounded, and it holds no funds. The
- * file is written once, `0600` in a `0700` directory, with an exclusive
- * create so two servers starting together cannot both write one. It is
+ * file is written once, `0600` in a `0700` directory, atomically (written
+ * aside, then hard-linked into place), so two servers starting together
+ * cannot both write one and neither can read a half-written one. It is
  * never overwritten: a key that signed a grant's `grantData` must not
  * silently change under it.
  *
@@ -14,7 +15,14 @@
  * log line carries it.
  */
 import { webcrypto } from "node:crypto";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Es256Signer } from "../core/signer.js";
@@ -23,15 +31,6 @@ const subtle = webcrypto.subtle;
 
 export class KeyFileError extends Error {
   readonly code = "signer_unavailable" as const;
-}
-
-/** `$MCP_REGISTER_KEY_FILE`, else `<home>/log-key.jwk` under `registerHome`. */
-export function defaultKeyFilePath(
-  env: Record<string, string | undefined>,
-): string {
-  return (
-    env["MCP_REGISTER_KEY_FILE"] ?? join(registerHome(env), "log-key.jwk")
-  );
 }
 
 /** `$MCP_REGISTER_HOME`, else `$XDG_CONFIG_HOME/forestrie/mcp-register`, else `~/.config/…`. */
@@ -60,6 +59,12 @@ function isP256PrivateJwk(v: unknown): v is P256Jwk {
   );
 }
 
+/**
+ * Write a new key without ever exposing a half-written file: the JWK goes
+ * to a private temporary file first, then is hard-linked into place, which
+ * fails (EEXIST) if another process got there first, in which case its key
+ * is used. The temporary file is always removed.
+ */
 async function createKeyFile(path: string): Promise<void> {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const pair = (await subtle.generateKey(
@@ -78,17 +83,25 @@ async function createKeyFile(path: string): Promise<void> {
     alg: "ES256",
     note: "Forestrie log key for @forestrie/mcp-register. Grants name its public x‖y; keep this file private.",
   };
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
   try {
-    writeFileSync(path, JSON.stringify(record, null, 2) + "\n", {
+    writeFileSync(tmp, JSON.stringify(record, null, 2) + "\n", {
       flag: "wx",
       mode: 0o600,
     });
-  } catch (err) {
-    // Lost a race to another process creating the same file: use theirs.
-    if ((err as NodeJS.ErrnoException).code === "EEXIST") return;
-    throw err;
+    try {
+      linkSync(tmp, path);
+    } catch (err) {
+      // Lost a race to another process creating the same file: use theirs.
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    }
+  } finally {
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // already gone
+    }
   }
-  chmodSync(path, 0o600);
 }
 
 export interface KeyFileSigner extends Es256Signer {
@@ -98,23 +111,50 @@ export interface KeyFileSigner extends Es256Signer {
 }
 
 /**
- * Load the key at `path`, creating it first if it does not exist. Lazy by
- * design: the server constructs the signer at the first tool call that
- * needs it, so starting the server never writes a file.
+ * Load the key at `path`. Lazy by design: the server opens the signer at the
+ * first tool call that needs it, so starting the server never writes a
+ * file. With `create` (the default) a missing key is created; without it a
+ * missing key is a `KeyFileError`, so a read-only tool never makes one.
+ *
+ * Refused, like ssh refuses a loose private key: a key path that is a
+ * symlink, or a key file readable or writable by group or others.
  */
-export async function openKeyFileSigner(path: string): Promise<KeyFileSigner> {
+export async function openKeyFileSigner(
+  path: string,
+  options: { create?: boolean } = {},
+): Promise<KeyFileSigner> {
   let created = false;
+  let stat = lstatOrUndefined(path);
+  if (stat === undefined) {
+    if (options.create === false)
+      throw new KeyFileError(
+        `no log key at ${path} yet: get_log_key or register_statement creates it`,
+      );
+    try {
+      await createKeyFile(path);
+    } catch (err) {
+      throw new KeyFileError(
+        `cannot create the log key file ${path}: ${(err as Error).message}`,
+      );
+    }
+    created = true;
+    stat = lstatOrUndefined(path);
+  }
+  if (stat === undefined || stat.isSymbolicLink() || !stat.isFile())
+    throw new KeyFileError(
+      `the log key path ${path} is not a regular file (a symlink or directory is refused)`,
+    );
+  if ((stat.mode & 0o077) !== 0)
+    throw new KeyFileError(
+      `the log key file ${path} is accessible to other users (mode ${(stat.mode & 0o777).toString(8)}); chmod 600 it`,
+    );
   let text: string;
   try {
     text = readFileSync(path, "utf8");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT")
-      throw new KeyFileError(
-        `cannot read the log key file ${path}: ${(err as Error).message}`,
-      );
-    await createKeyFile(path);
-    created = true;
-    text = readFileSync(path, "utf8");
+    throw new KeyFileError(
+      `cannot read the log key file ${path}: ${(err as Error).message}`,
+    );
   }
   let jwk: unknown;
   try {
@@ -126,13 +166,20 @@ export async function openKeyFileSigner(path: string): Promise<KeyFileSigner> {
     throw new KeyFileError(
       `the log key file ${path} is not a P-256 private JWK (kty EC, crv P-256, x, y, d)`,
     );
-  const privateKey = await subtle.importKey(
-    "jwk",
-    { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y, d: jwk.d, ext: false },
-    { name: "ECDSA", namedCurve: "P-256" },
-    false,
-    ["sign"],
-  );
+  let privateKey: CryptoKey;
+  try {
+    privateKey = await subtle.importKey(
+      "jwk",
+      { kty: "EC", crv: "P-256", x: jwk.x, y: jwk.y, d: jwk.d, ext: false },
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["sign"],
+    );
+  } catch {
+    throw new KeyFileError(
+      `the log key file ${path} holds an invalid P-256 key`,
+    );
+  }
   const xy = new Uint8Array(64);
   xy.set(b64urlToBytes(jwk.x), 0);
   xy.set(b64urlToBytes(jwk.y), 32);
@@ -151,4 +198,15 @@ export async function openKeyFileSigner(path: string): Promise<KeyFileSigner> {
         ),
       ),
   };
+}
+
+function lstatOrUndefined(path: string) {
+  try {
+    return lstatSync(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw new KeyFileError(
+      `cannot stat the log key path ${path}: ${(err as Error).message}`,
+    );
+  }
 }

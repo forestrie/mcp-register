@@ -9,8 +9,9 @@
  *  - The status URL answers 303 to itself (`Retry-After`) until the entry is
  *    sequenced, then 303 to the permanent receipt URL
  *    `…/logs/{R}/{T}/{massifHeight}/entries/{entryId}/receipt`.
- *  - The receipt URL answers 404 until a checkpoint covering the entry is
- *    sealed, then 200 with the receipt.
+ *  - The receipt URL answers 404 "checkpoint missing" (or "checkpoint does
+ *    not cover entry") until a checkpoint covering the entry is sealed,
+ *    then 200 with the receipt. Other 404s are faults.
  *  - Failures are `application/problem+cbor` maps `{title, status, detail?,
  *    reason?}`.
  */
@@ -29,14 +30,18 @@ export interface Problem {
   title: string;
   detail?: string;
   reason?: string;
+  /** From the response's Retry-After, e.g. canopy's queue-full 503. */
+  retryAfterSeconds?: number;
 }
 
 export function readProblem(res: ResponseView): Problem {
-  const fallback: Problem = {
+  const retry = retryAfter(res);
+  const base: Problem = {
     status: res.status,
     title: `HTTP ${res.status}`,
+    ...(retry !== undefined ? { retryAfterSeconds: retry } : {}),
   };
-  if (res.body.length === 0) return fallback;
+  if (res.body.length === 0) return base;
   try {
     const decoded = decodeCborDeterministic(res.body);
     const get = (k: string): unknown =>
@@ -50,7 +55,7 @@ export function readProblem(res: ResponseView): Problem {
     const reason = get("reason");
     if (typeof title === "string")
       return {
-        status: res.status,
+        ...base,
         title,
         ...(typeof detail === "string" ? { detail } : {}),
         ...(typeof reason === "string" ? { reason } : {}),
@@ -62,23 +67,68 @@ export function readProblem(res: ResponseView): Problem {
     .decode(res.body)
     .replace(/[^\x20-\x7e]+/g, " ")
     .trim();
-  return text ? { ...fallback, detail: text.slice(0, 500) } : fallback;
+  return text ? { ...base, detail: text.slice(0, 200) } : base;
 }
 
-function absolute(location: string, base: string): string {
-  return new URL(location, base).toString();
+/**
+ * Resolve a Location against the URL that answered, and keep it on the
+ * expected origin: a status or receipt URL that points elsewhere is not
+ * followed (the caller would otherwise fetch wherever a server says).
+ */
+function follow(
+  location: string,
+  res: ResponseView,
+  origin: string | undefined,
+): { ok: true; url: string } | { ok: false; problem: Problem } {
+  let url: URL;
+  try {
+    url = new URL(location, res.url);
+  } catch {
+    return {
+      ok: false,
+      problem: {
+        status: res.status,
+        title: "Invalid Location",
+        detail: `the Location header is not a URL: ${location.slice(0, 200)}`,
+      },
+    };
+  }
+  if (origin !== undefined && url.origin !== origin)
+    return {
+      ok: false,
+      problem: {
+        status: res.status,
+        title: "Unexpected Location",
+        detail: `the Location header points to ${url.origin}, not ${origin}; not following it`,
+      },
+    };
+  return { ok: true, url: url.toString() };
+}
+
+/** The origin of a base URL, or `undefined` when it does not parse. */
+export function originOf(baseUrl: string): string | undefined {
+  try {
+    return new URL(baseUrl).origin;
+  } catch {
+    return undefined;
+  }
 }
 
 export type RegisterOutcome =
   | { kind: "accepted"; statusUrl: string; retryAfterSeconds?: number }
   | { kind: "problem"; problem: Problem };
 
-export function readRegisterResponse(res: ResponseView): RegisterOutcome {
+export function readRegisterResponse(
+  res: ResponseView,
+  origin?: string,
+): RegisterOutcome {
   if (res.status === 303 && res.headers["location"]) {
+    const next = follow(res.headers["location"], res, origin);
+    if (!next.ok) return { kind: "problem", problem: next.problem };
     const retry = retryAfter(res);
     return {
       kind: "accepted",
-      statusUrl: absolute(res.headers["location"], res.url),
+      statusUrl: next.url,
       ...(retry !== undefined ? { retryAfterSeconds: retry } : {}),
     };
   }
@@ -97,15 +147,19 @@ export type StatusOutcome =
     }
   | { kind: "problem"; problem: Problem };
 
-export function readStatusResponse(res: ResponseView): StatusOutcome {
+export function readStatusResponse(
+  res: ResponseView,
+  origin?: string,
+): StatusOutcome {
   if (res.status !== 303)
     return { kind: "problem", problem: readProblem(res) };
-  const location = absolute(res.headers["location"] ?? res.url, res.url);
-  const match = RECEIPT_PATH.exec(new URL(location).pathname);
+  const next = follow(res.headers["location"] ?? res.url, res, origin);
+  if (!next.ok) return { kind: "problem", problem: next.problem };
+  const match = RECEIPT_PATH.exec(new URL(next.url).pathname);
   if (match)
     return {
       kind: "sequenced",
-      receiptUrl: location,
+      receiptUrl: next.url,
       massifHeight: Number(match[1]),
       entryId: match[2]!,
     };
@@ -114,11 +168,26 @@ export function readStatusResponse(res: ResponseView): StatusOutcome {
 
 export type ReceiptOutcome =
   | { kind: "sealed"; receipt: Uint8Array; contentType?: string }
-  | { kind: "awaiting_seal" }
+  | { kind: "awaiting_seal"; reason: string }
   | { kind: "problem"; problem: Problem };
 
+/**
+ * The 404s that mean "sequenced, not yet sealed": no checkpoint yet, or one
+ * that predates the entry (canopy `scrapi/resolve-receipt.ts`). canopy
+ * answers 404 for other reasons too — a missing massif, a height or index
+ * mismatch, an unknown forest — and those will not fix themselves by
+ * waiting, so they are problems, with canopy's reason.
+ */
+const AWAITING_SEAL =
+  /checkpoint missing\)$|checkpoint does not cover entry\)$/;
+
 export function readReceiptResponse(res: ResponseView): ReceiptOutcome {
-  if (res.status === 404) return { kind: "awaiting_seal" };
+  if (res.status === 404) {
+    const problem = readProblem(res);
+    if (AWAITING_SEAL.test(problem.title))
+      return { kind: "awaiting_seal", reason: problem.title };
+    return { kind: "problem", problem };
+  }
   if (res.status === 200 && res.body.length > 0)
     return {
       kind: "sealed",

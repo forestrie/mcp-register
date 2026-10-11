@@ -7,10 +7,16 @@
  * Nothing here returns key material or accepts a signature: the signer is
  * reached only through `deps.signer()`.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { isAbsolute, relative } from "node:path";
 import { z } from "zod";
 import { NetError, fetchReceipt } from "@forestrie/mcp-resolve/net";
-import { verifyFetched, summarizeFetched } from "@forestrie/mcp-resolve";
+import {
+  EndpointError,
+  registrationStatusUrl,
+  summarizeFetched,
+  verifyFetched,
+} from "@forestrie/mcp-resolve";
 import type { TrustRoot } from "@forestrie/mcp-verify";
 import {
   GrantError,
@@ -25,6 +31,7 @@ import {
   readReceiptResponse,
   readRegisterResponse,
   readStatusResponse,
+  originOf,
   type Problem,
 } from "../core/scrapi.js";
 import type { Es256Signer } from "../core/signer.js";
@@ -33,17 +40,30 @@ import { delegateSealing } from "../net/delegate.js";
 import { getRegistrationStatus, postStatement } from "../net/write.js";
 import { InputError, resolveBytes, type BytesInput } from "./resolve-input.js";
 import { KeyFileError } from "./signer-file.js";
-import { RegistrationStore, StoreError } from "./store.js";
+import {
+  RegistrationStore,
+  StoreError,
+  type RegistrationRecord,
+} from "./store.js";
 import type { ToolName } from "./text.js";
 
 /* -------------------------------- deps ---------------------------------- */
+
+/** How long check_registration reports "pending" before warning that
+ *  canopy may never have received the statement. */
+const STALE_PENDING_MINUTES = 10;
 
 export interface ResolvedDeps {
   fetchImpl: typeof fetch;
   env: Record<string, string | undefined>;
   now: () => Date;
-  /** Opened on first use, so starting the server writes no file. */
-  signer: () => Promise<Es256Signer & { created?: boolean }>;
+  /** Opened on first use, so starting the server writes no file. With
+   *  `create: false` a missing key is an error rather than a new key. */
+  signer: (options?: {
+    create?: boolean;
+  }) => Promise<Es256Signer & { created?: boolean }>;
+  /** Paths no `{path}` input may read: the key file and the server's home. */
+  protectedPaths: string[];
   store: RegistrationStore;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -193,19 +213,29 @@ function problemResult(
   return ok(`${toolName}: problem (${code}): ${message}`, { problem });
 }
 
+function httpProblemValue(
+  message: string,
+  p: Problem,
+): Record<string, unknown> {
+  return {
+    code: "http_error",
+    message: `${message}: ${p.title}${p.detail ? ` — ${p.detail}` : ""}${p.retryAfterSeconds !== undefined ? ` (retry after ${p.retryAfterSeconds}s)` : ""}`,
+    status: p.status,
+    title: p.title,
+    ...(p.detail !== undefined ? { detail: p.detail } : {}),
+    ...(p.reason !== undefined ? { reason: p.reason } : {}),
+    ...(p.retryAfterSeconds !== undefined
+      ? { retryAfterSeconds: p.retryAfterSeconds }
+      : {}),
+  };
+}
+
 function httpProblem(
   toolName: ToolName,
   message: string,
   p: Problem,
 ): ToolResult {
-  return problemResult(toolName, {
-    code: "http_error",
-    message: `${message}: ${p.title}${p.detail ? ` — ${p.detail}` : ""}`,
-    status: p.status,
-    title: p.title,
-    ...(p.detail !== undefined ? { detail: p.detail } : {}),
-    ...(p.reason !== undefined ? { reason: p.reason } : {}),
-  });
+  return problemResult(toolName, httpProblemValue(message, p));
 }
 
 function missingInput(
@@ -236,6 +266,20 @@ async function guardHandler(
     ) {
       return problemResult(toolName, { code: err.code, message: err.message });
     }
+    if (err instanceof EndpointError)
+      return problemResult(toolName, {
+        code: "invalid_input",
+        message: err.message,
+      });
+    // Any filesystem failure not mapped above (a Node errno error).
+    if (
+      err instanceof Error &&
+      typeof (err as NodeJS.ErrnoException).syscall === "string"
+    )
+      return problemResult(toolName, {
+        code: "io_error",
+        message: err.message,
+      });
     throw err;
   }
 }
@@ -245,6 +289,39 @@ async function guardHandler(
 interface ResolvedGrant {
   b64: string;
   view: GrantView;
+}
+
+/**
+ * Refuse a `{path}` that resolves to the log key file or anywhere under the
+ * server's home: a prompt-injected caller must not be able to get the
+ * private key signed and registered on a public log.
+ */
+function assertReadable(path: string, what: string, deps: ResolvedDeps): void {
+  let real: string;
+  try {
+    real = realpathSync(path);
+  } catch {
+    return; // missing or unreadable: the read itself reports it
+  }
+  for (const guarded of deps.protectedPaths) {
+    let g: string;
+    try {
+      g = realpathSync(guarded);
+    } catch {
+      continue;
+    }
+    const rel = relative(g, real);
+    if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel)))
+      throw new InputError(
+        `${what} may not read ${path}: it is the log key or inside this server's own home`,
+      );
+  }
+}
+
+/** `resolveBytes`, with `{path}` inputs kept off the key and the home. */
+function readBytes(input: BytesInput, what: string, deps: ResolvedDeps) {
+  if ("path" in input) assertReadable(input.path, `${what}.path`, deps);
+  return resolveBytes(input, what);
 }
 
 /** A grant from a tool argument or FORESTRIE_GRANT: inline base64, or a path
@@ -257,7 +334,17 @@ function resolveGrant(
   if (raw === undefined || raw.trim() === "") return undefined;
   let bytes: Uint8Array;
   if (existsSync(raw)) {
-    const file = new Uint8Array(readFileSync(raw));
+    assertReadable(raw, "grant", deps);
+    if (!statSync(raw).isFile())
+      throw new InputError(`grant path ${raw} is not a file`);
+    let file: Uint8Array;
+    try {
+      file = new Uint8Array(readFileSync(raw));
+    } catch (err) {
+      throw new InputError(
+        `cannot read grant file ${raw}: ${(err as Error).message}`,
+      );
+    }
     // A COSE Sign1 starts 0x84 (untagged) or 0xd2 (tag 18); anything else is
     // read as base64 text.
     bytes =
@@ -287,20 +374,25 @@ function decodeBase64Text(text: string, what: string): Uint8Array {
 /* ----------------------------- get_log_key ------------------------------ */
 
 export function makeGetLogKeyTool(deps: ResolvedDeps) {
+  // `created` is reported once, by the first call after this server made
+  // the key; later calls see an existing key.
+  let announced = false;
   return () =>
     guardHandler("get_log_key", async () => {
       const signer = await deps.signer();
       const xy = await signer.publicKeyXY();
+      const created = signer.created === true && !announced;
+      announced = true;
       const structured = {
         alg: "ES256",
         publicKeyXYHex: toHex(xy),
         publicKeyXYBase64: bytesToBase64(xy),
         statementKidHex: toHex(xy.slice(0, 32)),
         backend: signer.description,
-        created: signer.created === true,
+        created,
       };
       return ok(
-        `log key (ES256) x‖y ${structured.publicKeyXYHex}${structured.created ? " — created just now" : ""}; held in ${signer.description}. A grant must name this key in its grantData.`,
+        `log key (ES256) x‖y ${structured.publicKeyXYHex}${created ? " — newly created by this server" : ""}; held in ${signer.description}. A grant must name this key in its grantData.`,
         structured,
       );
     });
@@ -325,6 +417,8 @@ export function makeRegisterStatementTool(deps: ResolvedDeps) {
           "rootLogId",
           "FORESTRIE_ROOT_LOG_ID",
         );
+      // Inputs first: a refused path must fail before anything else runs.
+      const payload = readBytes(args.payload as BytesInput, "payload", deps);
       const grant = resolveGrant(args.grant, deps);
       if (!grant)
         return missingInput("register_statement", "grant", "FORESTRIE_GRANT");
@@ -339,7 +433,6 @@ export function makeRegisterStatementTool(deps: ResolvedDeps) {
           logId: grant.view.logId,
         });
 
-      const payload = resolveBytes(args.payload as BytesInput, "payload");
       if (payload.length > MAX_STATEMENT_BYTES)
         return problemResult("register_statement", {
           code: "too_large",
@@ -357,41 +450,61 @@ export function makeRegisterStatementTool(deps: ResolvedDeps) {
         signer,
       );
 
-      const res = await postStatement(
-        {
-          baseUrl,
-          rootLogId,
-          statement: signed.statement,
-          grantB64: grant.b64,
-        },
-        { fetchImpl: deps.fetchImpl },
-      );
-      const outcome = readRegisterResponse(res);
-      if (outcome.kind === "problem")
-        return httpProblem(
-          "register_statement",
-          "canopy refused the statement",
-          outcome.problem,
-        );
-
-      const record = {
+      // Save first: once the request leaves, canopy may hold the statement
+      // even if we never see its answer, and a retry would sign a different
+      // one. The content hash names it either way.
+      const record: RegistrationRecord = {
         contentHash: signed.contentHash,
-        statusUrl: outcome.statusUrl,
+        state: "signed",
         baseUrl,
         rootLogId,
         logId: grant.view.logId,
         contentType: args.contentType,
         issuer: signed.issuer,
         subject: signed.subject,
-        registeredAt: res.at,
+        signedAt: deps.now().toISOString(),
       };
       deps.store.saveStatement(record, signed.statement);
+      const saved = {
+        contentHash: record.contentHash,
+        statementPath: deps.store.statementPath(record.contentHash),
+      };
+
+      let res;
+      try {
+        res = await postStatement(
+          {
+            baseUrl,
+            rootLogId,
+            statement: signed.statement,
+            grantB64: grant.b64,
+          },
+          { fetchImpl: deps.fetchImpl },
+        );
+      } catch (err) {
+        if (!(err instanceof NetError)) throw err;
+        return problemResult("register_statement", {
+          code: err.code,
+          message: `${err.message}. The request may or may not have reached canopy; the signed statement is saved, so call check_registration with ${record.contentHash} before registering again`,
+          ...saved,
+        });
+      }
+      const outcome = readRegisterResponse(res, originOf(baseUrl));
+      if (outcome.kind === "problem")
+        return problemResult("register_statement", {
+          ...httpProblemValue("canopy refused the statement", outcome.problem),
+          ...saved,
+        });
+
+      record.state = "accepted";
+      record.statusUrl = outcome.statusUrl;
+      record.acceptedAt = res.at;
+      deps.store.saveRecord(record);
       return ok(
         `registered: accepted by canopy for log ${record.logId}, content hash ${record.contentHash}. Not yet sequenced: call check_registration with that content hash${outcome.retryAfterSeconds !== undefined ? ` in about ${outcome.retryAfterSeconds}s` : ""}.`,
         {
-          state: "accepted",
           ...record,
-          statementPath: deps.store.statementPath(record.contentHash),
+          ...saved,
           statementBytes: signed.statement.length,
           ...(outcome.retryAfterSeconds !== undefined
             ? { retryAfterSeconds: outcome.retryAfterSeconds }
@@ -417,37 +530,64 @@ export function makeCheckRegistrationTool(deps: ResolvedDeps) {
       )
         return ok(
           `sealed: entry ${record.entryId}; receipt at ${paths.receiptPath}`,
-          { state: "sealed", ...record, ...paths },
+          { ...record, state: "sealed", ...paths },
         );
 
+      const origin = originOf(record.baseUrl);
       let receiptUrl = record.receiptUrl;
       if (receiptUrl === undefined) {
+        // canopy's status URL is a function of the coordinates, so a
+        // statement saved but never confirmed (state "signed") can still be
+        // looked up.
+        const statusUrl =
+          record.statusUrl ??
+          registrationStatusUrl(
+            record.baseUrl,
+            record.rootLogId,
+            record.logId,
+            record.contentHash,
+          );
         const res = await getRegistrationStatus(
-          { statusUrl: record.statusUrl },
+          { statusUrl },
           { fetchImpl: deps.fetchImpl },
         );
-        const status = readStatusResponse(res);
+        const status = readStatusResponse(res, origin);
         if (status.kind === "problem")
           return httpProblem(
             "check_registration",
             "the status URL answered with a problem",
             status.problem,
           );
-        if (status.kind === "pending")
+        if (status.kind === "pending") {
+          record.firstPendingAt ??= res.at;
+          deps.store.saveRecord(record);
+          const minutes =
+            (Date.parse(res.at) - Date.parse(record.firstPendingAt)) / 60_000;
+          const stale = minutes >= STALE_PENDING_MINUTES;
           return ok(
-            `pending: not yet sequenced; check again in ${status.retryAfterSeconds}s`,
+            stale
+              ? `pending for ${Math.floor(minutes)} minutes. canopy answers a statement it never received exactly as it answers one not yet sequenced, so this may never resolve${record.state === "signed" ? " (canopy never confirmed accepting it)" : ""}; consider registering again`
+              : `pending: not yet sequenced; check again in ${status.retryAfterSeconds}s`,
             {
               state: "pending",
               contentHash: record.contentHash,
               retryAfterSeconds: status.retryAfterSeconds,
+              firstPendingAt: record.firstPendingAt,
+              ...(stale ? { stale: true } : {}),
             },
           );
+        }
         record.receiptUrl = status.receiptUrl;
         record.entryId = status.entryId;
         record.massifHeight = status.massifHeight;
         deps.store.saveRecord(record);
         receiptUrl = status.receiptUrl;
       }
+      if (origin !== undefined && new URL(receiptUrl).origin !== origin)
+        return problemResult("check_registration", {
+          code: "invalid_location",
+          message: `the saved receipt URL ${receiptUrl} is not on ${origin}; not following it`,
+        });
 
       const res = await fetchReceipt(
         { receiptUrl },
@@ -462,9 +602,10 @@ export function makeCheckRegistrationTool(deps: ResolvedDeps) {
         );
       if (receipt.kind === "awaiting_seal")
         return ok(
-          `awaiting_seal: sequenced as entry ${record.entryId}; no checkpoint covers it yet. Sealing takes minutes, and needs delegate_sealing to have run for log ${record.logId}. Check again in about a minute.`,
+          `awaiting_seal: sequenced as entry ${record.entryId}; canopy says "${receipt.reason}". Sealing takes minutes, and needs delegate_sealing to have run for log ${record.logId}. Check again in about a minute.`,
           {
             state: "awaiting_seal",
+            reason: receipt.reason,
             contentHash: record.contentHash,
             entryId: record.entryId,
             massifHeight: record.massifHeight,
@@ -477,8 +618,8 @@ export function makeCheckRegistrationTool(deps: ResolvedDeps) {
       return ok(
         `sealed: entry ${record.entryId}; receipt saved at ${paths.receiptPath}. Call verify_registration next.`,
         {
-          state: "sealed",
           ...record,
+          state: "sealed",
           ...paths,
           receiptBytes: receipt.receipt.length,
         },
@@ -505,14 +646,16 @@ export function makeVerifyRegistrationTool(deps: ResolvedDeps) {
       if (args.knownAccumulator !== undefined) {
         trust = {
           root: "known-accumulator",
-          accumulator: resolveBytes(
+          accumulator: readBytes(
             args.knownAccumulator as BytesInput,
             "knownAccumulator",
+            deps,
           ),
         };
         rootFrom = "supplied by caller";
       } else {
-        const signer = await deps.signer();
+        // Never creates a key: verifying is read-only.
+        const signer = await deps.signer({ create: false });
         trust = { root: "known-log-key", keyXy: await signer.publicKeyXY() };
         rootFrom = `this server's log key (${signer.description})`;
       }

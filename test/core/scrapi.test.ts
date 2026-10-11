@@ -1,3 +1,4 @@
+import { encodeCborDeterministic } from "@forestrie/encoding";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -89,13 +90,17 @@ describe("synthetic recordings", () => {
     const out = readStatusResponse(view(ex("receipt-404")));
     expect(out).toMatchObject({
       kind: "problem",
-      problem: { status: 404, title: "Not Found" },
+      problem: {
+        status: 404,
+        title: "Entry receipt not found (checkpoint missing)",
+      },
     });
   });
 
-  it("receipt 404 is awaiting_seal", () => {
+  it("receipt 404 'checkpoint missing' is awaiting_seal, with canopy's reason", () => {
     expect(readReceiptResponse(view(ex("receipt-404")))).toEqual({
       kind: "awaiting_seal",
+      reason: "Entry receipt not found (checkpoint missing)",
     });
   });
 
@@ -179,6 +184,111 @@ describe("real lane-a-0.5.0 recordings", () => {
     expect(readStatusResponse(view(e))).toEqual({
       kind: "pending",
       retryAfterSeconds: 1,
+    });
+  });
+});
+
+/** A canopy-shaped problem+cbor response. */
+function problem(
+  status: number,
+  title: string,
+  headers: Record<string, string> = {},
+): ResponseView {
+  return {
+    url: receiptUrl,
+    status,
+    headers: { "content-type": "application/problem+cbor", ...headers },
+    body: encodeCborDeterministic(
+      new Map<string, unknown>([
+        ["type", "about:blank"],
+        ["title", title],
+        ["status", status],
+      ]),
+    ),
+  };
+}
+
+describe("receipt 404 reasons (canopy scrapi/resolve-receipt.ts)", () => {
+  it("treats a checkpoint that does not cover the entry yet as awaiting_seal", () => {
+    expect(
+      readReceiptResponse(
+        problem(
+          404,
+          "Entry receipt not found (checkpoint does not cover entry)",
+        ),
+      ),
+    ).toMatchObject({ kind: "awaiting_seal" });
+  });
+
+  it("reports every other 404 as a problem with canopy's reason", () => {
+    for (const title of [
+      "Entry receipt not found (massif missing)",
+      "Entry receipt not found (massif height mismatch)",
+      "Not Found",
+    ]) {
+      const out = readReceiptResponse(problem(404, title));
+      expect(out).toMatchObject({ kind: "problem", problem: { title } });
+    }
+  });
+});
+
+describe("Location handling", () => {
+  const accepted = (location: string): ResponseView => ({
+    url: `${c.baseUrl}/register/${c.rootLogId}/entries`,
+    status: 303,
+    headers: { location },
+    body: new Uint8Array(0),
+  });
+
+  it("resolves a relative Location against the request URL", () => {
+    expect(
+      readRegisterResponse(
+        accepted("/logs/x/y/entries/z"),
+        new URL(c.baseUrl).origin,
+      ),
+    ).toEqual({
+      kind: "accepted",
+      statusUrl: `${new URL(c.baseUrl).origin}/logs/x/y/entries/z`,
+    });
+  });
+
+  it("refuses to follow a Location on another origin", () => {
+    const out = readRegisterResponse(
+      accepted("https://elsewhere.example/logs/x"),
+      new URL(c.baseUrl).origin,
+    );
+    expect(out).toMatchObject({
+      kind: "problem",
+      problem: { title: "Unexpected Location" },
+    });
+    const status = readStatusResponse(
+      { ...accepted("http://169.254.169.254/latest"), url: statusUrl },
+      new URL(c.baseUrl).origin,
+    );
+    expect(status).toMatchObject({ kind: "problem" });
+  });
+
+  it("reports a Location that is not a URL as a problem, not a throw", () => {
+    const out = readRegisterResponse({
+      ...accepted("http://[bad"),
+      url: "not a url either",
+    });
+    expect(out).toMatchObject({
+      kind: "problem",
+      problem: { title: "Invalid Location" },
+    });
+  });
+});
+
+describe("problems keep Retry-After", () => {
+  it("carries a 503's Retry-After", () => {
+    expect(
+      readRegisterResponse(
+        problem(503, "Service Unavailable", { "retry-after": "30" }),
+      ),
+    ).toMatchObject({
+      kind: "problem",
+      problem: { status: 503, retryAfterSeconds: 30 },
     });
   });
 });

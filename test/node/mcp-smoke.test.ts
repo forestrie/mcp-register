@@ -89,12 +89,30 @@ describe("tools/list", () => {
   });
 
   it("takes no signature and no private key as input (the model never handles signature bytes)", async () => {
+    // Every property name anywhere in every input schema, at any depth.
+    const names = (node: unknown, out: string[] = []): string[] => {
+      if (Array.isArray(node)) for (const n of node) names(n, out);
+      else if (node && typeof node === "object") {
+        const props = (node as { properties?: Record<string, unknown> })
+          .properties;
+        if (props) out.push(...Object.keys(props));
+        for (const v of Object.values(node)) names(v, out);
+      }
+      return out;
+    };
+    const forbidden = /sig|private|secret|jwk|^d$|^key$|^pkcs|^pem$/i;
     const { tools } = await client.listTools();
     for (const tool of tools) {
-      const schema = JSON.stringify(tool.inputSchema).toLowerCase();
-      expect(schema, tool.name).not.toMatch(
-        /"(signature|sig|privatekey|private_key|d|jwk)"\s*:/,
-      );
+      const fields = names(tool.inputSchema);
+      if (tool.name === "register_statement")
+        // Not vacuous: the walk does see the fields.
+        expect(fields).toEqual(
+          expect.arrayContaining(["payload", "contentType", "grant"]),
+        );
+      expect(
+        fields.filter((f) => forbidden.test(f)),
+        tool.name,
+      ).toEqual([]);
     }
   });
 });

@@ -4,11 +4,11 @@
   "status": 404,
   "headers": {
     "content-type": "application/problem+cbor",
-    "content-length": "95"
+    "content-length": "80"
   },
   "contentType": "application/problem+cbor",
   "bodyFile": "receipt-404.body",
-  "bodyBytes": 95,
-  "note": "Sequenced but not yet sealed.",
-  "bodySha256": "a7a38d9bc93b63ae00962c7391afd598f9434085417a3cc184d864e27e5b6513"
+  "bodyBytes": 80,
+  "note": "Sequenced but not yet sealed: no checkpoint yet.",
+  "bodySha256": "4170be41d9c901a05cf9d0d70e858f34744b755bb080c489d526aaae6863f567"
 }

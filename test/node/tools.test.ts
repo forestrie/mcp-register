@@ -6,7 +6,16 @@
  * forbidden-fetch global stays in force underneath.
  */
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -62,7 +71,8 @@ afterEach(async () => {
 
 async function connect(opts: {
   exchanges: Exchange[];
-  signer: Es256Signer;
+  /** Omit to use the real key-file signer, in this test's temp home. */
+  signer?: Es256Signer;
   env?: Record<string, string>;
 }): Promise<{
   call: (name: string, args?: Record<string, unknown>) => Promise<Structured>;
@@ -82,7 +92,7 @@ async function connect(opts: {
       ...(opts.env ?? {}),
     },
     home,
-    signer: opts.signer,
+    ...(opts.signer !== undefined ? { signer: opts.signer } : {}),
     sleep: async (ms) => {
       sleeps.push(ms);
     },
@@ -239,7 +249,11 @@ describe("register_statement and check_registration", () => {
     });
     expect(out["problem"].message).toContain("Forbidden");
     expect(replay.calls).toHaveLength(1);
-    expect(existsSync(path.join(home, "registrations"))).toBe(false);
+    // Saved before sending, so the handle survives whatever canopy answers.
+    expect(readFileSync(out["problem"].statementPath)).toEqual(
+      Buffer.from(replay.calls[0]!.body),
+    );
+    expect(out["problem"].contentHash).toBe(sha256Hex(replay.calls[0]!.body));
   });
 
   it("reports missing inputs without a request", async () => {
@@ -309,6 +323,7 @@ describe("a real recorded registration (lane-a-0.5.0)", () => {
     store.saveStatement(
       {
         contentHash: lane.contentHashSha256,
+        state: "accepted",
         statusUrl: statusSelf.url,
         baseUrl: lane.baseUrl,
         rootLogId: lane.bootstrapLogId,
@@ -316,7 +331,8 @@ describe("a real recorded registration (lane-a-0.5.0)", () => {
         contentType: "application/cose",
         issuer: "lane-a-0.5.0",
         subject: "lane-a-0.5.0",
-        registeredAt: "2026-09-22T19:58:32Z",
+        signedAt: "2026-09-22T19:58:31Z",
+        acceptedAt: "2026-09-22T19:58:32Z",
       },
       statement,
     );
@@ -419,5 +435,273 @@ describe("delegate_sealing", () => {
     });
     const out = await call("delegate_sealing");
     expect(out["problem"]).toMatchObject({ code: "invalid_input" });
+  });
+});
+
+describe("review hardening", () => {
+  it("refuses a payload path that is the log key or inside the home, before any request", async () => {
+    const { call, replay } = await connect({ exchanges: [] });
+    const key = await call("get_log_key");
+    expect(key["created"]).toBe(true);
+    const keyFile = path.join(home, "log-key.jwk");
+    for (const p of [keyFile, home, path.join(home, "registrations")]) {
+      const out = await call("register_statement", {
+        payload: { path: p },
+        contentType: "application/json",
+      });
+      expect(out["problem"]?.code, p).toBe("invalid_input");
+    }
+    const acc = await call("verify_registration", {
+      contentHash: "0".repeat(64),
+      knownAccumulator: { path: keyFile },
+    });
+    expect(acc["problem"]).toBeDefined();
+    expect(replay.calls).toHaveLength(0);
+  });
+
+  it("reports the key as created once, and never leaks the private half in any result", async () => {
+    const { raw, call } = await connect({ exchanges: [] });
+    const first = await call("get_log_key");
+    const second = await call("get_log_key");
+    expect(first["created"]).toBe(true);
+    expect(second["created"]).toBe(false);
+    expect(second["publicKeyXYHex"]).toBe(first["publicKeyXYHex"]);
+    const jwk = JSON.parse(
+      readFileSync(path.join(home, "log-key.jwk"), "utf8"),
+    ) as { d: string };
+    const everything = JSON.stringify([
+      first,
+      second,
+      await raw("get_log_key"),
+      await raw("register_statement", {
+        payload: payloadArg,
+        contentType: "application/json",
+        baseUrl: "",
+      }),
+    ]);
+    expect(everything).not.toContain(jwk.d);
+  });
+
+  it("verify_registration never creates a key", async () => {
+    const store = new RegistrationStore(home);
+    const hash = "a".repeat(64);
+    store.saveStatement(
+      {
+        contentHash: hash,
+        state: "accepted",
+        statusUrl,
+        baseUrl: c.baseUrl,
+        rootLogId: c.rootLogId,
+        logId: c.dataLogId,
+        contentType: "application/json",
+        issuer: "i",
+        subject: "s",
+        signedAt: "2026-10-11T00:00:00Z",
+        entryId: c.entryId,
+        sealedAt: "2026-10-11T00:01:00Z",
+      },
+      payload,
+    );
+    store.saveReceipt(hash, new Uint8Array([0xd2]));
+    const { call } = await connect({ exchanges: [] });
+    const out = await call("verify_registration", { contentHash: hash });
+    expect(out["problem"]?.code).toBe("signer_unavailable");
+    expect(existsSync(path.join(home, "log-key.jwk"))).toBe(false);
+  });
+
+  it("turns a directory grant, a corrupt record and a missing statement into problems", async () => {
+    const dirGrant = path.join(home, "..", `grant-dir-${process.pid}`);
+    mkdirSync(dirGrant, { recursive: true });
+    try {
+      const { call } = await connect({
+        signer: await jwkSigner(),
+        exchanges: [],
+        env: { FORESTRIE_GRANT: dirGrant },
+      });
+      const out = await call("register_statement", {
+        payload: payloadArg,
+        contentType: "application/json",
+      });
+      expect(out["problem"]?.code).toBe("invalid_input");
+    } finally {
+      rmSync(dirGrant, { recursive: true, force: true });
+    }
+
+    const hash = "b".repeat(64);
+    const dir = path.join(home, "registrations", hash);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "record.json"), "null");
+    const { call } = await connect({
+      signer: await jwkSigner(),
+      exchanges: [],
+    });
+    expect(
+      (await call("check_registration", { contentHash: hash }))["problem"]
+        ?.code,
+    ).toBe("corrupt_record");
+
+    const store = new RegistrationStore(home);
+    const hash2 = "c".repeat(64);
+    store.saveStatement(
+      {
+        contentHash: hash2,
+        state: "accepted",
+        statusUrl,
+        baseUrl: c.baseUrl,
+        rootLogId: c.rootLogId,
+        logId: c.dataLogId,
+        contentType: "application/json",
+        issuer: "i",
+        subject: "s",
+        signedAt: "2026-10-11T00:00:00Z",
+        entryId: c.entryId,
+        sealedAt: "2026-10-11T00:01:00Z",
+      },
+      payload,
+    );
+    store.saveReceipt(hash2, new Uint8Array([0xd2]));
+    rmSync(store.statementPath(hash2));
+    expect(
+      (await call("verify_registration", { contentHash: hash2 }))["problem"]
+        ?.code,
+    ).toBe("store_failed");
+  });
+
+  it("keeps the handle when the POST fails, and check_registration finds it by its derived status URL", async () => {
+    const { call, replay } = await connect({
+      signer: await jwkSigner(),
+      exchanges: [],
+    });
+    const out = await call("register_statement", {
+      payload: payloadArg,
+      contentType: "application/json",
+    });
+    // The replay has nothing for the POST: a network-level failure.
+    expect(out["problem"]?.code).toBe("network");
+    const hash = out["problem"].contentHash as string;
+    expect(existsSync(out["problem"].statementPath)).toBe(true);
+    const record = JSON.parse(
+      readFileSync(
+        path.join(home, "registrations", hash, "record.json"),
+        "utf8",
+      ),
+    );
+    expect(record).toMatchObject({ state: "signed", contentHash: hash });
+    expect(record.statusUrl).toBeUndefined();
+    expect(replay.calls.map((x) => x.method)).toEqual(["POST"]);
+
+    // No status URL was ever returned; check_registration derives it.
+    const derived = `${c.baseUrl}/logs/${c.rootLogId}/${c.dataLogId}/entries/${hash}`;
+    const again = await connect({
+      signer: await jwkSigner(),
+      exchanges: [{ ...ex("status-pending"), url: derived }],
+    });
+    const pending = await again.call("check_registration", {
+      contentHash: hash,
+    });
+    expect(pending).toMatchObject({ state: "pending" });
+    expect(again.replay.calls[0]!.url).toBe(derived);
+  });
+
+  it("warns once a registration has been pending for ten minutes", async () => {
+    const store = new RegistrationStore(home);
+    const hash = "d".repeat(64);
+    store.saveStatement(
+      {
+        contentHash: hash,
+        state: "accepted",
+        statusUrl,
+        baseUrl: c.baseUrl,
+        rootLogId: c.rootLogId,
+        logId: c.dataLogId,
+        contentType: "application/json",
+        issuer: "i",
+        subject: "s",
+        signedAt: "2026-10-11T00:00:00Z",
+        firstPendingAt: "2000-01-01T00:00:00Z",
+      },
+      payload,
+    );
+    const { call } = await connect({
+      signer: await jwkSigner(),
+      exchanges: [ex("status-pending")],
+    });
+    const out = await call("check_registration", { contentHash: hash });
+    expect(out).toMatchObject({ state: "pending", stale: true });
+  });
+});
+
+describe("the key-file signer (src/node/signer-file.ts)", () => {
+  it("creates nothing until a tool needs the key, then 0600 in a 0700 dir, and never overwrites", async () => {
+    const keyFile = path.join(home, "log-key.jwk");
+    await connect({ exchanges: [] });
+    expect(existsSync(keyFile)).toBe(false);
+
+    const { openKeyFileSigner } =
+      await import("../../src/node/signer-file.js");
+    const nested = path.join(home, "nested", "log-key.jwk");
+    const a = await openKeyFileSigner(nested);
+    expect(a.created).toBe(true);
+    expect(statSync(nested).mode & 0o777).toBe(0o600);
+    expect(statSync(path.dirname(nested)).mode & 0o777).toBe(0o700);
+    const before = readFileSync(nested, "utf8");
+    const b = await openKeyFileSigner(nested);
+    expect(b.created).toBe(false);
+    expect(readFileSync(nested, "utf8")).toBe(before);
+    expect(toHex(await b.publicKeyXY())).toBe(toHex(await a.publicKeyXY()));
+  });
+
+  it("refuses a key readable by others, a symlinked key, and a missing key without create", async () => {
+    const { openKeyFileSigner } =
+      await import("../../src/node/signer-file.js");
+    const keyFile = path.join(home, "k.jwk");
+    await openKeyFileSigner(keyFile);
+    chmodSync(keyFile, 0o644);
+    await expect(openKeyFileSigner(keyFile)).rejects.toThrow(/other users/);
+    chmodSync(keyFile, 0o600);
+
+    const { symlinkSync } = await import("node:fs");
+    const link = path.join(home, "link.jwk");
+    symlinkSync(keyFile, link);
+    await expect(openKeyFileSigner(link)).rejects.toThrow(
+      /not a regular file/,
+    );
+    const dangling = path.join(home, "dangling.jwk");
+    symlinkSync(path.join(home, "nowhere"), dangling);
+    await expect(openKeyFileSigner(dangling)).rejects.toThrow(
+      /not a regular file/,
+    );
+
+    await expect(
+      openKeyFileSigner(path.join(home, "absent.jwk"), { create: false }),
+    ).rejects.toThrow(/no log key/);
+    expect(existsSync(path.join(home, "absent.jwk"))).toBe(false);
+  });
+
+  it("signs ES256 that verifies under its own public key", async () => {
+    const { openKeyFileSigner } =
+      await import("../../src/node/signer-file.js");
+    const signer = await openKeyFileSigner(path.join(home, "s.jwk"));
+    const xy = await signer.publicKeyXY();
+    const msg = new TextEncoder().encode("message");
+    const sig = await signer.sign(msg);
+    const point = new Uint8Array(65);
+    point[0] = 4;
+    point.set(xy, 1);
+    const pub = await crypto.subtle.importKey(
+      "raw",
+      point as BufferSource,
+      { name: "ECDSA", namedCurve: "P-256" },
+      false,
+      ["verify"],
+    );
+    expect(
+      await crypto.subtle.verify(
+        { name: "ECDSA", hash: "SHA-256" },
+        pub,
+        sig as BufferSource,
+        msg as BufferSource,
+      ),
+    ).toBe(true);
   });
 });
