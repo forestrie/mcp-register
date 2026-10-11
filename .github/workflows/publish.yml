@@ -16,10 +16,11 @@ name: Publish
 # of its own to register; the tools it ships write only under the caller's
 # own grant and key).
 #
-# The first publish, 0.1.0, was by hand and unattested, because npm can only
-# register a trusted publisher for a package that already exists. The trusted
-# publisher was registered immediately after, against this workflow and the
-# `npm-publish` environment, so every release from 0.1.1 on is attested.
+# The first publish must be by hand (unattested), because npm can only
+# register a trusted publisher for a package that already exists. Register the
+# trusted publisher immediately after, against this workflow and the
+# `npm-publish` environment, so every later release is attested. (Not yet
+# done: @forestrie/mcp-register has not been published.)
 #
 # Release discipline:
 # - Tags (`v<version>`) are the normal release trigger; workflow_dispatch is

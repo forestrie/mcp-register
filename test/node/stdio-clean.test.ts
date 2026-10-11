@@ -12,7 +12,7 @@
  * whenever it is absent, so a clean checkout still gets a real answer
  * instead of a false green.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,8 +35,9 @@ const CHECK_SCRIPT = path.join(REPO_ROOT, "scripts", "check-stdio-clean.mjs");
 
 let buildFailure: string | undefined;
 
+// Always rebuild: these tests spawn dist/, and a dist/ left over from an
+// earlier checkout would test old code.
 beforeAll(() => {
-  if (existsSync(DIST_CLI)) return;
   const build = spawnSync(
     process.execPath,
     [TSC_BIN, "-p", "tsconfig.build.json"],
@@ -51,7 +52,7 @@ beforeAll(() => {
 }, 60_000);
 
 describe("check:stdio-clean", () => {
-  it("the real bin writes exactly one well-formed initialize response to stdout, nothing else", () => {
+  it("the real bin writes only well-formed replies to stdout, through initialize, the lists and a tool call", () => {
     if (buildFailure !== undefined) {
       throw new Error(buildFailure);
     }
@@ -67,4 +68,43 @@ describe("check:stdio-clean", () => {
       )})\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
     ).toBe(0);
   });
+});
+
+describe("signals", () => {
+  it("exits 0 on SIGTERM even while the client keeps stdin open", async () => {
+    if (buildFailure !== undefined) throw new Error(buildFailure);
+    const child = spawn(
+      process.execPath,
+      [path.join(REPO_ROOT, "bin", "mcp-register.mjs")],
+      { cwd: REPO_ROOT, stdio: ["pipe", "pipe", "pipe"] },
+    );
+    const initialized = new Promise<void>((resolve) => {
+      child.stdout.on("data", (chunk: Buffer) => {
+        if (chunk.toString().includes('"id":1')) resolve();
+      });
+    });
+    child.stdin.write(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "signal-test", version: "0" },
+        },
+      }) + "\n",
+    );
+    await initialized;
+    const exited = new Promise<number | null>((resolve) =>
+      child.on("exit", (code) => resolve(code)),
+    );
+    child.kill("SIGTERM");
+    const code = await Promise.race([
+      exited,
+      new Promise<"timeout">((r) => setTimeout(() => r("timeout"), 3000)),
+    ]);
+    if (code === "timeout") child.kill("SIGKILL");
+    expect(code).toBe(0);
+  }, 20_000);
 });

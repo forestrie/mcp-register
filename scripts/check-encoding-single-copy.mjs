@@ -32,14 +32,14 @@
  *
  * Usage: node scripts/check-encoding-single-copy.mjs [rootDir]
  */
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = process.argv[2] ?? process.cwd();
 const MAX_DEPTH = 12;
 
 // name -> expected exact pin
-const EXPECTED = {
+export const EXPECTED = {
   "@forestrie/encoding": "0.8.0",
   "@forestrie/receipt-verify": "2.0.0",
   "@forestrie/chain-rpc": "0.3.0",
@@ -56,7 +56,7 @@ const EXPECTED = {
  * about layouts: pnpm's store, npm's flat tree, npm's nested fallback and a
  * yarn `node_modules` all fall out of the same walk.
  */
-function findCopies(rootDir, names) {
+export function findCopies(rootDir, names) {
   // shortName -> full name, so the walk can match by directory name alone.
   const byShort = new Map(names.map((n) => [n.split("/")[1], n]));
   // name -> version -> [paths]
@@ -76,8 +76,20 @@ function findCopies(rootDir, names) {
     versions.set(pkg.version, list);
   }
 
+  // Realpaths already walked: pnpm links the same store directory from many
+  // places, and a symlink cycle must not multiply the walk.
+  const visited = new Set();
+
   function walk(dir, depth) {
     if (depth > MAX_DEPTH) return;
+    let real;
+    try {
+      real = realpathSync(dir);
+    } catch {
+      return;
+    }
+    if (visited.has(real)) return;
+    visited.add(real);
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
@@ -90,6 +102,9 @@ function findCopies(rootDir, names) {
       const p = join(dir, e.name);
       if (byShort.has(e.name) && dir.endsWith("@forestrie")) {
         record(p);
+        // A tracked package can carry its own nested copy of another one
+        // (npm's fallback when hoisting would conflict): look inside too.
+        walk(join(p, "node_modules"), depth + 1);
         continue;
       }
       walk(p, depth + 1);
@@ -100,40 +115,47 @@ function findCopies(rootDir, names) {
   return found;
 }
 
-const names = Object.keys(EXPECTED);
-const found = findCopies(root, names);
+function main() {
+  const root = process.argv[2] ?? process.cwd();
+  const names = Object.keys(EXPECTED);
+  const found = findCopies(root, names);
 
-let failed = false;
-for (const name of names) {
-  const versions = found.get(name);
-  const expected = EXPECTED[name];
+  let failed = false;
+  for (const name of names) {
+    const versions = found.get(name);
+    const expected = EXPECTED[name];
 
-  if (versions.size === 0) {
-    console.error(
-      `encoding-copy check FAILED: no ${name} found under ${root}`,
+    if (versions.size === 0) {
+      console.error(
+        `encoding-copy check FAILED: no ${name} found under ${root}`,
+      );
+      failed = true;
+      continue;
+    }
+    if (versions.size > 1) {
+      console.error(`encoding-copy check FAILED: multiple ${name} versions:`);
+      for (const [v, paths] of versions)
+        for (const p of paths) console.error(`  ${v}  ${p}`);
+      console.error(
+        "Two copies of a wire-type package is two answers about the same bytes. Fix the pin, do not add an override.",
+      );
+      failed = true;
+      continue;
+    }
+    const [version] = [...versions.keys()];
+    if (version !== expected) {
+      console.error(
+        `encoding-copy check FAILED: ${name} expected exactly ${expected}, found ${version}`,
+      );
+      failed = true;
+      continue;
+    }
+    console.log(
+      `encoding-copy check passed: exactly one ${name} (${version}).`,
     );
-    failed = true;
-    continue;
   }
-  if (versions.size > 1) {
-    console.error(`encoding-copy check FAILED: multiple ${name} versions:`);
-    for (const [v, paths] of versions)
-      for (const p of paths) console.error(`  ${v}  ${p}`);
-    console.error(
-      "Two copies of a wire-type package is two answers about the same bytes. Fix the pin, do not add an override.",
-    );
-    failed = true;
-    continue;
-  }
-  const [version] = [...versions.keys()];
-  if (version !== expected) {
-    console.error(
-      `encoding-copy check FAILED: ${name} expected exactly ${expected}, found ${version}`,
-    );
-    failed = true;
-    continue;
-  }
-  console.log(`encoding-copy check passed: exactly one ${name} (${version}).`);
+
+  if (failed) process.exit(1);
 }
 
-if (failed) process.exit(1);
+if (process.argv[1] === fileURLToPath(import.meta.url)) main();

@@ -6,7 +6,13 @@
  * layout — and must find nothing in a clean tree. Pure filesystem walk,
  * synthetic fixtures only: no network, no real install.
  */
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -192,5 +198,37 @@ describe("check:reverse-dependency — scanInstalledTree", () => {
     const { hits, seen } = scanInstalledTree(scratchDir);
     expect(hits).toEqual([]);
     expect([...seen].sort()).toEqual(HOSTS.slice().sort());
+  });
+});
+
+describe("check:reverse-dependency — fails closed", () => {
+  it("reports a package.json that does not parse as a problem, not a container", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "reverse-dependency-corrupt-"));
+    const dir = join(scratchDir, "node_modules", "@forestrie", "mcp-register");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "package.json"), '{"name": "@forestrie/mcp-reg');
+    const { problems } = scanInstalledTree(scratchDir);
+    expect(problems.join("\n")).toMatch(/not a package\.json with a name/);
+  });
+
+  it("reports hitting the depth limit", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "reverse-dependency-depth-"));
+    let d = join(scratchDir, "node_modules");
+    for (let i = 0; i < 5; i++) d = join(d, `c${i}`);
+    mkdirSync(d, { recursive: true });
+    expect(scanInstalledTree(scratchDir, 2).problems.join("\n")).toMatch(
+      /depth limit/,
+    );
+  });
+
+  it("terminates on a symlink cycle, walking each directory once", () => {
+    scratchDir = mkdtempSync(join(tmpdir(), "reverse-dependency-cycle-"));
+    const nm = join(scratchDir, "node_modules");
+    mkdirSync(nm, { recursive: true });
+    for (const n of ["a", "b", "c", "d"]) symlinkSync(".", join(nm, n));
+    const started = Date.now();
+    const { problems } = scanInstalledTree(scratchDir);
+    expect(problems).toEqual([]);
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 });

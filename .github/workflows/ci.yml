@@ -41,6 +41,16 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
+      # mise-action put mise.toml's node on PATH first; prove this leg runs
+      # the node it claims to, or the engines floor is untested.
+      - name: This leg runs the matrix node
+        run: |
+          actual="$(node -p 'process.versions.node')"
+          if [ "$actual" != "${{ matrix.node-version }}" ]; then
+            echo "::error::expected node ${{ matrix.node-version }}, got $actual"
+            exit 1
+          fi
+
       # NO registry credentials anywhere in this workflow. A passing install
       # is the tokenless-install acceptance check.
       - name: Install

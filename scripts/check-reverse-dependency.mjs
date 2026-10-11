@@ -22,8 +22,10 @@
  * declared dependency just as npm does; so this tree is sufficient evidence
  * and a scratch `npm i` would add a network round trip and nothing else.
  *
- * Not vacuous: the walk must also see both hosts, or the check fails (an
- * uninstalled or unreadable tree is a check that did not run, never a pass).
+ * Not vacuous, and fails closed: the walk must also see both hosts, and an
+ * unreadable directory, a package.json that does not parse, or the depth
+ * limit is a failure (a tree it could not read is a check that did not run,
+ * never a pass). Symlinks are followed once each, by realpath.
  *
  * Works on both node_modules layouts:
  *   pnpm  — node_modules/.pnpm/<key>/node_modules/<scope>/<name>
@@ -34,7 +36,7 @@
  *
  * Usage: node scripts/check-reverse-dependency.mjs [repoRoot]
  */
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -64,22 +66,58 @@ export function findMcpRegisterCopies(rootDir, maxDepth = MAX_DEPTH) {
 export function scanInstalledTree(rootDir, maxDepth = MAX_DEPTH) {
   const hits = [];
   const seen = new Set();
+  /** Why the walk could not vouch for the tree; any entry fails the gate. */
+  const problems = [];
+  // Realpaths already walked: pnpm links one store directory from many
+  // places, and a symlink cycle must not multiply the walk.
+  const visited = new Set();
 
+  /** The package name, `undefined` for a container (no package.json), or
+   *  a problem recorded when a package.json exists but cannot be read. */
   function pkgNameOf(dir) {
+    let text;
     try {
-      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
-      return typeof pkg.name === "string" ? pkg.name : undefined;
-    } catch {
+      text = readFileSync(join(dir, "package.json"), "utf8");
+    } catch (err) {
+      if (err?.code === "ENOENT" || err?.code === "ENOTDIR") return undefined;
+      problems.push(
+        `cannot read ${join(dir, "package.json")}: ${err?.message ?? err}`,
+      );
       return undefined;
     }
+    try {
+      const pkg = JSON.parse(text);
+      if (typeof pkg.name === "string") return pkg.name;
+    } catch {
+      // fall through
+    }
+    problems.push(
+      `${join(dir, "package.json")} is not a package.json with a name`,
+    );
+    return undefined;
   }
 
   function walk(dir, depth) {
-    if (depth > maxDepth) return;
+    let real;
+    try {
+      real = realpathSync(dir);
+    } catch (err) {
+      if (err?.code === "ENOENT") return;
+      problems.push(`cannot resolve ${dir}: ${err?.message ?? err}`);
+      return;
+    }
+    if (visited.has(real)) return;
+    visited.add(real);
+    if (depth > maxDepth) {
+      problems.push(`depth limit ${maxDepth} reached at ${dir}`);
+      return;
+    }
     let entries;
     try {
       entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
+    } catch (err) {
+      if (err?.code === "ENOENT" || err?.code === "ENOTDIR") return;
+      problems.push(`cannot list ${dir}: ${err?.message ?? err}`);
       return;
     }
     for (const e of entries) {
@@ -95,18 +133,15 @@ export function scanInstalledTree(rootDir, maxDepth = MAX_DEPTH) {
       } else {
         // No package.json of its own: a scope directory (`@forestrie`), or
         // one of pnpm's containers — `.pnpm` itself, or one of its
-        // `<name>@<version>` / `@scope+name@<version>` store-key entries,
-        // which hold the real package one level further down, inside their
-        // own `node_modules`. All of these are just containers; recurse
-        // straight into them (not through a `node_modules` hop, since they
-        // don't have deps of their own — their *contents* do).
+        // `<name>@<version>` store-key entries, which hold the real package
+        // one level further down, inside their own `node_modules`.
         walk(p, depth + 1);
       }
     }
   }
 
   walk(join(rootDir, "node_modules"), 0);
-  return { hits, seen };
+  return { hits, seen, problems };
 }
 
 function report(label, hits) {
@@ -131,7 +166,14 @@ function main() {
     );
     process.exit(1);
   }
-  const { hits, seen } = scanInstalledTree(repoRoot);
+  const { hits, seen, problems } = scanInstalledTree(repoRoot);
+  if (problems.length > 0) {
+    console.error(
+      "reverse-dependency check FAILED: the walk could not read the whole tree, so it cannot vouch for it:",
+    );
+    for (const p of problems) console.error(`  ${p}`);
+    process.exit(1);
+  }
   const unseen = HOSTS.filter((h) => !seen.has(h));
   if (unseen.length > 0) {
     console.error(

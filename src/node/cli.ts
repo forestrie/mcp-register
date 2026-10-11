@@ -97,13 +97,16 @@ export async function main(argv: readonly string[]): Promise<number> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  // Resolve when the transport closes, so the wrapper can set an exit code
-  // rather than the process being torn down mid-write.
+  // Wait for the transport to close or a signal, then close the server so
+  // the transport lets go of stdin and the event loop can drain: a client
+  // that sends SIGTERM without closing the pipe must still see us exit.
+  // The wrapper sets the exit code; nothing here calls process.exit.
   await new Promise<void>((resolve) => {
     transport.onclose = () => resolve();
-    process.on("SIGINT", () => resolve());
-    process.on("SIGTERM", () => resolve());
+    process.once("SIGINT", () => resolve());
+    process.once("SIGTERM", () => resolve());
   });
+  await server.close();
   return 0;
 }
 

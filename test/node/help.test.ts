@@ -34,8 +34,9 @@ const TSC_BIN = path.join(
 
 let buildFailure: string | undefined;
 
+// Always rebuild: this test spawns dist/, and a dist/ left over from an
+// earlier checkout would test old code.
 beforeAll(() => {
-  if (existsSync(DIST_CLI)) return;
   const build = spawnSync(
     process.execPath,
     [TSC_BIN, "-p", "tsconfig.build.json"],

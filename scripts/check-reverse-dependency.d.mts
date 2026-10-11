@@ -13,4 +13,4 @@ export declare function findMcpRegisterCopies(
 export declare function scanInstalledTree(
   rootDir: string,
   maxDepth?: number,
-): { hits: string[]; seen: Set<string> };
+): { hits: string[]; seen: Set<string>; problems: string[] };
