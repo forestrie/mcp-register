@@ -34,11 +34,19 @@ together with `src/net/` is the **only** place `node:fs` and `fetch` appear.
 
 ## Signing keys
 
-The log key is ES256. Signing happens only in `src/node`, behind a signer
-backend (default: a local key file the server creates). Signature bytes never
-cross the MCP boundary as tool inputs: a tool takes the statement to sign, not
-a signature. Key material never enters `src/core` or `src/net` and is never
-written to stdout or to a tool result.
+The log key is ES256. Every signature this package makes — statements, the
+delegation certificate, the on-chain delegation proof — goes through one seam,
+`Es256Signer` (`src/core/signer.ts`): `src/core` builds the exact bytes to be
+signed and calls `sign(bytes)`; it never holds a key. The default backend,
+`src/node/signer-file.ts`, keeps a P-256 JWK in a local file it creates on
+first use (`0600`, exclusive create, never overwritten). An embedder passes
+its own signer (`createServer({ signer })`) for a KMS or a remote signer.
+
+Signature bytes never cross the MCP boundary as tool inputs: a tool takes the
+payload to sign, not a signature. `test/node/mcp-smoke.test.ts` asserts that
+no tool's input schema has a signature or key field. Private key material
+never enters `src/core` or `src/net`, and is never written to stdout, to a log
+line or to a tool result.
 
 ## The gates
 
@@ -118,7 +126,25 @@ exactly one well-formed `initialize` response and nothing else. Related:
 
 Verification results pass through `@forestrie/mcp-verify`'s answers
 unaltered: this package may add rows about where bytes came from and what was
-registered, and never edits the verifier's answers.
+registered, and never edits the verifier's answers. `verify_registration`
+names the trust root it used and where that root came from (this server's
+key file, or supplied by the caller), and its default root — the log key —
+answers what a signature root answers and no more: the verifier says
+`not_answered_by_this_root` for split-view, and that answer reaches the
+caller. The wording of the tool descriptions and the `register` and `audit`
+prompts (`src/node/text.ts`) is deliberate; change it on purpose, never in
+passing.
+
+## Fixtures
+
+`test/fixtures/lane-a-0.5.0/` is real: lane A recordings copied verbatim from
+`@forestrie/mcp-resolve`'s frozen fixtures, used to prove the status, receipt
+and verification path on real bytes. `test/fixtures/synthetic/write-path/` is
+synthesised from canopy's source contract (register, prepare,
+pending-delegation, certificate), because recording those needs a live grant
+on a lane. Each directory has a `PROVENANCE.md` and a sha256 `manifest.json`
+that the tests check. A live recording of the write path is the system-testing
+suite's job, not this repo's.
 
 ## Tests
 

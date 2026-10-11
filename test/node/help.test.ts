@@ -55,9 +55,7 @@ async function listedToolNames(): Promise<string[]> {
   const client = new Client({ name: "help-test", version: "0" });
   await client.connect(clientTransport);
   try {
-    // A server with no tools registered does not advertise the tools
-    // capability, so tools/list is "method not found": that is an empty list.
-    const { tools } = await client.listTools().catch(() => ({ tools: [] }));
+    const { tools } = await client.listTools();
     return tools.map((t) => t.name);
   } finally {
     await client.close();

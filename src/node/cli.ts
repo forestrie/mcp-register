@@ -17,7 +17,7 @@
  *    the process mid-write truncates whatever the stdio transport had
  *    buffered. The wrapper sets `process.exitCode` and lets node drain.
  *
- * Serves the tools `createServer()` (`server.ts`) registers (none yet). It is
+ * Serves the tools `createServer()` (`server.ts`) registers. It is
  * called with no `deps`, so it reads `process.env` and calls the real
  * `globalThis.fetch` — exactly what `npx -y @forestrie/mcp-register` should do.
  */
@@ -28,19 +28,22 @@ import {
   VERIFIER_VERSION,
 } from "../core/index.js";
 import { createServer } from "./server.js";
-import { TOOL_NAMES, TOOL_TITLES } from "./text.js";
+import {
+  PROMPT_NAMES,
+  PROMPT_TITLES,
+  TOOL_NAMES,
+  TOOL_TITLES,
+} from "./text.js";
 
 /** One line per tool, generated from the same list the server registers
- *  from — never a hand-typed block. Copes with zero tools. */
-const TOOLS_BLOCK =
-  TOOL_NAMES.length === 0
-    ? "  (none yet)"
-    : (TOOL_NAMES as readonly string[])
-        .map(
-          (name) =>
-            `  ${name.padEnd(26)} ${(TOOL_TITLES as Record<string, string>)[name]}`,
-        )
-        .join("\n");
+ *  from — never a hand-typed block. */
+const TOOLS_BLOCK = TOOL_NAMES.map(
+  (name) => `  ${name.padEnd(26)} ${TOOL_TITLES[name]}`,
+).join("\n");
+
+const PROMPTS_BLOCK = PROMPT_NAMES.map(
+  (name) => `  ${name.padEnd(26)} ${PROMPT_TITLES[name]}`,
+).join("\n");
 
 export const HELP = `forestrie-mcp-register ${PACKAGE_VERSION}
 
@@ -56,6 +59,18 @@ USAGE
 
 TOOLS
 ${TOOLS_BLOCK}
+
+PROMPTS
+${PROMPTS_BLOCK}
+
+CONFIGURATION (each overridable per call)
+  FORESTRIE_BASE_URL          canopy SCRAPI base URL
+  FORESTRIE_ROOT_LOG_ID       the forest's root log id (R in /register/{R}/entries)
+  FORESTRIE_GRANT             your Forestrie-Grant: base64, or a file path
+  FORESTRIE_COORDINATOR_URL   delegation coordinator, for delegate_sealing
+  FORESTRIE_KNOWN_SEALER_KEY  registrar voucher key, base64 x‖y, for delegate_sealing
+  MCP_REGISTER_HOME           key file and registrations (default ~/.config/forestrie/mcp-register)
+  MCP_REGISTER_KEY_FILE       the log key file (default $MCP_REGISTER_HOME/log-key.jwk)
 
 CLIENT CONFIG
   {"mcpServers": {"forestrie-register":
