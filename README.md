@@ -29,7 +29,7 @@ returns canopy's payment requirements, and you pay from your own x402 wallet
 
 ## Status
 
-Pre-release, version 0.1.0, not yet published to npm.
+Version 0.1.0, published to npm.
 
 ## Tools
 
@@ -163,8 +163,6 @@ x402, straight to the transparency operator.
 ```
 npx -y @forestrie/mcp-register
 ```
-
-(Not yet published.)
 
 ## Layers
 
