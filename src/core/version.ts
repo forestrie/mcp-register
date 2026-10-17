@@ -12,7 +12,7 @@
  */
 
 /** Keep in sync with package.json#version. Asserted by test/node/mcp-smoke. */
-export const PACKAGE_VERSION = "0.1.0";
+export const PACKAGE_VERSION = "0.1.1";
 
 /** Keep in sync with package.json#dependencies["@forestrie/mcp-verify"] — the
  *  verifier this package composes with. Asserted by

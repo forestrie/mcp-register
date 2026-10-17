@@ -27,7 +27,7 @@ your own x402 wallet (relay mode).
 
 ## Status
 
-Pre-release, version 0.1.0, not yet published to npm.
+Version 0.1.1 on npm, published with provenance from `publish.yml`. 0.1.0 was published by hand and has no provenance attestation; use 0.1.1 or later.
 
 ## Tools
 
