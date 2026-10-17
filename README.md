@@ -19,11 +19,13 @@ with a separate authority key, held the same way. The model never handles
 signature bytes: you pass the payload and the server signs it. No tool takes
 a signature or a key as input.
 
-Payment uses a third key, an EVM account that holds testnet USDC. It is
-configured by file and never crosses the MCP boundary, and the spending caps
-are configuration, not tool arguments. With no payer configured, the server
-spends nothing: it returns canopy's payment requirements, and you pay from
-your own x402 wallet (relay mode).
+Paying is optional, and the payer is yours. The server never creates a payer
+key and holds no funds of its own: you choose how payment happens (see
+[Choosing a payer](#choosing-a-payer)). Whichever you choose, a payer key
+never crosses the MCP boundary, and the spending caps are configuration, not
+tool arguments. With no payer configured, the server spends nothing: it
+returns canopy's payment requirements, and you pay from your own x402 wallet
+(relay mode).
 
 ## Status
 
@@ -67,7 +69,59 @@ Every value can be overridden per call.
 | `MCP_REGISTER_KEY_FILE`           | the log key file, default `$MCP_REGISTER_HOME/log-key.jwk`                                        |
 | `MCP_REGISTER_AUTHORITY_KEY_FILE` | the authority key file, default `$MCP_REGISTER_HOME/authority-key.jwk`                            |
 
-### Payment
+### Choosing a payer
+
+Whoever wants the work done pays for it: the requester, paying canopy
+directly. The server supports three ways to do that and prefers none of them.
+
+| Setup            | What you configure                                                                         | Who holds the key                                                                                                                |
+| ---------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| Relay            | nothing                                                                                    | your own x402 wallet: `register_grant` returns canopy's payment requirements and resumes on a call that carries your `X-PAYMENT` |
+| Key file         | `MCP_REGISTER_PAYER_KEY_FILE` and the caps below                                           | a file on the machine that runs the server                                                                                       |
+| Your own backend | `createServer({ payer })` from `@forestrie/mcp-register/server`, when you embed the server | whatever your `PayerBackend` uses: a hosted wallet, a KMS, a remote signer                                                       |
+
+A backend of your own must sign an EIP-3009 authorisation with the nonce it
+is given. That nonce is what stops one grant being paid for twice (see
+[Payment settings](#payment-settings)).
+
+#### Example: a dedicated key file
+
+This is one way to set up the key-file payer, not the way. Any EVM account
+works; what matters is that it pays for this and nothing else.
+
+1. Create a private key in a file only you can read. Any wallet tool that
+   exports a raw private key will do. With no extra tools:
+
+   ```
+   ( umask 077; printf '0x%s\n' "$(openssl rand -hex 32)" > payer.key )
+   ```
+
+   The server accepts one line, `0x` and 64 hex digits, in a regular file
+   (not a symlink) that no other user can read.
+
+2. Find the account's address with a tool you already trust to derive one
+   from a private key, or by importing the key into a wallet you use.
+
+3. Fund the address with the asset canopy charges in. On the default
+   network, Base Sepolia, that is testnet USDC, from
+   [Circle's faucet](https://faucet.circle.com). The account needs no ETH:
+   it only signs an authorisation, and the x402 facilitator submits the
+   transfer and pays its gas.
+
+4. Point the server at the file and set the caps:
+
+   ```
+   MCP_REGISTER_PAYER_KEY_FILE=/path/to/payer.key
+   MCP_REGISTER_PAY_MAX_PER_CALL=100000   # $0.10
+   MCP_REGISTER_PAY_MAX_PER_DAY=1000000   # $1.00
+   ```
+
+Keep one account per requester. Payments settle on chain, so anyone can link
+a payer address to the grants it paid for. To rotate the key, create a new
+one, move what is left to it, and point `MCP_REGISTER_PAYER_KEY_FILE` at the
+new file.
+
+### Payment settings
 
 These are read from the environment only. No tool argument can set or raise
 them.
