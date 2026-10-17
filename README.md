@@ -29,7 +29,7 @@ returns canopy's payment requirements, and you pay from your own x402 wallet
 
 ## Status
 
-Version 0.1.0, published to npm.
+Version 0.1.1 on npm, published with provenance from `publish.yml`. 0.1.0 was published by hand and has no provenance attestation; use 0.1.1 or later.
 
 ## Tools
 
