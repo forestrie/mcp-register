@@ -72,6 +72,12 @@ if it is a symlink or readable by others. An embedder passes its own
 `register_grant` runs in relay mode: it returns canopy's payment
 requirements and resumes on a call that carries the caller's `X-PAYMENT`.
 
+**The payer is the requester's, and the docs say so.** Relay, a key file and
+an embedder's backend are equal setups; the README's _Choosing a payer_
+presents them that way, and any worked example is labelled as one example.
+Never describe a particular account, funding source or secret store as the
+payer, and never suggest Forestrie provides, funds or holds one.
+
 **One grant is never paid for twice, by construction.** Every EIP-3009
 authorisation this server signs for a grant carries
 `grantPaymentNonce(grant content, payer address)` (`src/core/x402.ts`), and
