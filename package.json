@@ -4,7 +4,7 @@
   "mcpName": "dev.forestrie/register",
   "license": "MIT",
   "type": "module",
-  "description": "Sign and register a statement on a Forestrie transparency log under a grant you hold, then verify its receipt",
+  "description": "Sign and register statements on a Forestrie transparency log, verify their receipts, and buy grants over x402 within spending caps",
   "keywords": [
     "mcp",
     "modelcontextprotocol",

@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "dev.forestrie/register",
   "title": "Sign and register statements on a Forestrie log",
-  "description": "Sign a statement, register it on a Forestrie log under your grant, and verify its receipt",
+  "description": "Sign and register statements on a Forestrie log, verify receipts, buy grants via x402 within caps",
   "version": "0.1.1",
   "repository": {
     "url": "https://github.com/forestrie/mcp-register",
@@ -24,6 +24,104 @@
           "type": "positional",
           "value": "-y",
           "isRequired": true
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "FORESTRIE_BASE_URL",
+          "description": "Canopy SCRAPI base URL used when a call omits baseUrl; also the only origin a payer will pay. No default.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "FORESTRIE_ROOT_LOG_ID",
+          "description": "The forest's root log id (R in /register/{R}/entries) when a call omits rootLogId.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "FORESTRIE_GRANT",
+          "description": "Your Forestrie-Grant for the data log, as base64 or a file path, when a call omits grant.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "FORESTRIE_AUTHORITY_GRANT",
+          "description": "Your authority log's creation grant, for issue_grant, register_grant and delegate_sealing as authority.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "FORESTRIE_COORDINATOR_URL",
+          "description": "Delegation coordinator URL, for delegate_sealing.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "FORESTRIE_KNOWN_SEALER_KEY",
+          "description": "The registrar's sealer voucher key, base64 x||y, for delegate_sealing.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_HOME",
+          "description": "Directory for key files, grants, registrations and the spend ledger; default ~/.config/forestrie/mcp-register.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_KEY_FILE",
+          "description": "The log key file (ES256 JWK, mode 600); created on first use if missing.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_AUTHORITY_KEY_FILE",
+          "description": "The authority key file (ES256 JWK, mode 600) that signs child grants; created on first use if missing.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_PAYER_KEY_FILE",
+          "description": "Optional payer: a file holding your EVM key (0x + 64 hex, mode 600). Unset means relay mode: nothing is spent, your own x402 wallet pays.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_PAY_MAX_PER_CALL",
+          "description": "Most one payment may be, in the asset's atomic units. Required with a payer.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_PAY_MAX_PER_DAY",
+          "description": "Most all payments in one UTC day may total, in atomic units. Required with a payer.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_PAY_NETWORK",
+          "description": "The one network it pays on; default eip155:84532 (Base Sepolia).",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_PAY_ASSET",
+          "description": "The one asset it pays in; default USDC on Base Sepolia. Required off the default network.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_PAY_TO",
+          "description": "Optional: the only payee address it will pay.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "MCP_REGISTER_PAY_ALLOW_MAINNET",
+          "description": "Set to 1 to allow paying on a network that is not a testnet; off by default.",
+          "isRequired": false,
+          "isSecret": false
         }
       ]
     }
