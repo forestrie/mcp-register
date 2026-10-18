@@ -84,17 +84,17 @@
     "publish:dry-run": "pnpm pack && npm publish --dry-run --tag dryrun ./forestrie-mcp-register-*.tgz"
   },
   "dependencies": {
-    "@forestrie/delegation-cose": "0.3.2",
-    "@forestrie/encoding": "0.8.0",
-    "@forestrie/mcp-resolve": "0.3.0",
-    "@forestrie/mcp-verify": "0.5.0",
-    "@forestrie/receipt-verify": "2.0.0",
+    "@forestrie/delegation-cose": "0.4.0",
+    "@forestrie/encoding": "0.9.1",
+    "@forestrie/mcp-resolve": "0.4.0",
+    "@forestrie/mcp-verify": "0.6.0",
+    "@forestrie/receipt-verify": "3.1.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "viem": "2.57.4",
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@forestrie/grant-builder": "0.5.0",
+    "@forestrie/grant-builder": "0.5.1",
     "@types/node": "^22.14.0",
     "@x402/core": "2.28.0",
     "@x402/evm": "2.28.0",

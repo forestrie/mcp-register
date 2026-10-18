@@ -17,9 +17,9 @@ export const PACKAGE_VERSION = "0.1.1";
 /** Keep in sync with package.json#dependencies["@forestrie/mcp-verify"] — the
  *  verifier this package composes with. Asserted by
  *  test/core/version.test.ts. */
-export const VERIFIER_VERSION = "0.5.0";
+export const VERIFIER_VERSION = "0.6.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/mcp-resolve"] —
  *  the resolver this package composes with. Asserted by
  *  test/core/version.test.ts. */
-export const RESOLVE_VERSION = "0.3.0";
+export const RESOLVE_VERSION = "0.4.0";
