@@ -46,7 +46,7 @@ export const EXPECTED = {
   "@forestrie/scrapi-client": "0.2.4",
   "@forestrie/merklelog": "0.5.0",
   "@forestrie/delegation-cose": "0.4.0",
-  "@forestrie/mcp-verify": "0.6.0",
+  "@forestrie/mcp-verify": "0.6.1",
   "@forestrie/mcp-resolve": "0.4.0",
 };
 
