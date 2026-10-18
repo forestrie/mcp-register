@@ -3,7 +3,7 @@
   "name": "dev.forestrie/register",
   "title": "Sign and register statements on a Forestrie log",
   "description": "Sign and register statements on a Forestrie log, verify receipts, buy grants via x402 within caps",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "repository": {
     "url": "https://github.com/forestrie/mcp-register",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@forestrie/mcp-register",
-      "version": "0.1.1",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },
