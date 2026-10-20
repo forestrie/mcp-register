@@ -15,14 +15,14 @@ importers:
         specifier: 0.9.1
         version: 0.9.1
       '@forestrie/mcp-resolve':
-        specifier: 0.4.0
-        version: 0.4.0
+        specifier: 0.4.1
+        version: 0.4.1
       '@forestrie/mcp-verify':
-        specifier: 0.6.1
-        version: 0.6.1
+        specifier: 0.7.0
+        version: 0.7.0
       '@forestrie/receipt-verify':
-        specifier: 3.1.0
-        version: 3.1.0
+        specifier: 3.2.0
+        version: 3.2.0
       '@modelcontextprotocol/sdk':
         specifier: 1.30.0
         version: 1.30.0(zod@4.6.6)
@@ -237,21 +237,21 @@ packages:
   '@forestrie/grant-builder@0.5.1':
     resolution: {integrity: sha512-ZQqkATxM5qs15hnnTJG7gC36V5oqQme74tgqVi1HV5cxNPxg6Gp8s+dYpdz1hnty5s73hSFn8+znJUzV2ZaFhA==}
 
-  '@forestrie/mcp-resolve@0.4.0':
-    resolution: {integrity: sha512-XLLe/AxrlIuj8e6zcdsSqQdaSnujv5JoANUMY5oF64XkUv/Y7Sz7tJv7f9/hw5e3/QsR/NlFXLNAUuR4yz3WfA==}
+  '@forestrie/mcp-resolve@0.4.1':
+    resolution: {integrity: sha512-9pbHWBtvHChb//97SqA9itmuW79oF7qIDdI/aZqFpCBD7G6IBzAvbdGesAOu2cwgXmCzOukLI2K7NlY5pQXVzA==}
     engines: {node: '>=20.11.0'}
     hasBin: true
 
-  '@forestrie/mcp-verify@0.6.1':
-    resolution: {integrity: sha512-t9bhEcSs06ECIrixXbOiE/sRE4qgox9/B1OR1D/+GKovB6Lv1fx22o6F+BR02OU/KZ2iBPKiRG76gYiatIuTcA==}
+  '@forestrie/mcp-verify@0.7.0':
+    resolution: {integrity: sha512-rKvMc966wqQdqxE5P1Pl3vkzBTibFjeTHqLGvnc9QRlhotZPqa1zQYgN72bTgp+vWyioRH/xW2109Au440dOzQ==}
     engines: {node: '>=20.11.0'}
     hasBin: true
 
   '@forestrie/merklelog@0.5.0':
     resolution: {integrity: sha512-oV5geJutday8LDPRUuVQYsE+C8VE4O5anhx0s1QI8cOmJDlZzdTaQTa7gEBQ6zu0EIU1gK04sZrGQd58w8Yw7g==}
 
-  '@forestrie/receipt-verify@3.1.0':
-    resolution: {integrity: sha512-FDYP86O1FNSS+p7S37FjATJ/Vju0LjS5LNGJgU1pw3PCNgdo1R+ojxSkyJE0lvcwPUB3Jm1WwgF6UEL2YpaCAg==}
+  '@forestrie/receipt-verify@3.2.0':
+    resolution: {integrity: sha512-Om31tOZ+zchfPGENjX08O0ZSx9DOcCZjJvQR/q8pBsmUfavvzUTDVbZwEYoNWtO3Op5JzE5pU/VoJ5Go9roNdA==}
 
   '@forestrie/scrapi-client@0.2.4':
     resolution: {integrity: sha512-zRb5m1wefvvfRdaDuH/0JY9jjoflkkrnTAijTP0IWoCIyG6VvcgvIe6zwU9TtH0MFjQQz/2xlPBbo9JTGfesZQ==}
@@ -1225,12 +1225,12 @@ snapshots:
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
 
-  '@forestrie/mcp-resolve@0.4.0':
+  '@forestrie/mcp-resolve@0.4.1':
     dependencies:
       '@forestrie/chain-rpc': 0.3.0
       '@forestrie/encoding': 0.9.1
-      '@forestrie/mcp-verify': 0.6.1
-      '@forestrie/receipt-verify': 3.1.0
+      '@forestrie/mcp-verify': 0.7.0
+      '@forestrie/receipt-verify': 3.2.0
       '@forestrie/scrapi-client': 0.2.4
       '@modelcontextprotocol/sdk': 1.30.0(zod@4.6.6)
       '@noble/hashes': 1.8.0
@@ -1239,11 +1239,11 @@ snapshots:
       - '@cfworker/json-schema'
       - supports-color
 
-  '@forestrie/mcp-verify@0.6.1':
+  '@forestrie/mcp-verify@0.7.0':
     dependencies:
       '@forestrie/encoding': 0.9.1
       '@forestrie/merklelog': 0.5.0
-      '@forestrie/receipt-verify': 3.1.0
+      '@forestrie/receipt-verify': 3.2.0
       '@modelcontextprotocol/sdk': 1.30.0(zod@4.6.6)
       zod: 4.6.6
     transitivePeerDependencies:
@@ -1252,7 +1252,7 @@ snapshots:
 
   '@forestrie/merklelog@0.5.0': {}
 
-  '@forestrie/receipt-verify@3.1.0':
+  '@forestrie/receipt-verify@3.2.0':
     dependencies:
       '@forestrie/chain-rpc': 0.3.0
       '@forestrie/delegation-cose': 0.4.0
