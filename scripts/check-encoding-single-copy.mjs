@@ -41,13 +41,13 @@ const MAX_DEPTH = 12;
 // name -> expected exact pin
 export const EXPECTED = {
   "@forestrie/encoding": "0.9.1",
-  "@forestrie/receipt-verify": "3.1.0",
+  "@forestrie/receipt-verify": "3.2.0",
   "@forestrie/chain-rpc": "0.3.0",
   "@forestrie/scrapi-client": "0.2.4",
   "@forestrie/merklelog": "0.5.0",
   "@forestrie/delegation-cose": "0.4.0",
-  "@forestrie/mcp-verify": "0.6.1",
-  "@forestrie/mcp-resolve": "0.4.0",
+  "@forestrie/mcp-verify": "0.7.0",
+  "@forestrie/mcp-resolve": "0.4.1",
 };
 
 /**
