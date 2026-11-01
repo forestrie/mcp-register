@@ -18,8 +18,8 @@ importers:
         specifier: 0.4.1
         version: 0.4.1
       '@forestrie/mcp-verify':
-        specifier: 0.7.0
-        version: 0.7.0
+        specifier: 0.8.1
+        version: 0.8.1
       '@forestrie/receipt-verify':
         specifier: 3.3.0
         version: 3.3.0
@@ -34,8 +34,8 @@ importers:
         version: 4.6.6
     devDependencies:
       '@forestrie/grant-builder':
-        specifier: 0.5.1
-        version: 0.5.1
+        specifier: 0.5.2
+        version: 0.5.2
       '@types/node':
         specifier: ^22.14.0
         version: 22.20.5
@@ -240,8 +240,8 @@ packages:
   '@forestrie/encoding@0.9.1':
     resolution: {integrity: sha512-hvZQDSM2xDTiSMwznyeK15gf9+Sqt5I5V8WojBwchku1KWcznLb4uN2rk7CXv9W3rXzAYfY7+xl4RGXfSvWHPQ==}
 
-  '@forestrie/grant-builder@0.5.1':
-    resolution: {integrity: sha512-ZQqkATxM5qs15hnnTJG7gC36V5oqQme74tgqVi1HV5cxNPxg6Gp8s+dYpdz1hnty5s73hSFn8+znJUzV2ZaFhA==}
+  '@forestrie/grant-builder@0.5.2':
+    resolution: {integrity: sha512-V5Ny5HER2ZGBzxP1+CZj0gpQIsIjMlvu0MrMfDTAMp35eY1s9LehlYgjAULrGXIqGuEnbtOuSAD70mHAmczp3A==}
 
   '@forestrie/mcp-resolve@0.4.1':
     resolution: {integrity: sha512-9pbHWBtvHChb//97SqA9itmuW79oF7qIDdI/aZqFpCBD7G6IBzAvbdGesAOu2cwgXmCzOukLI2K7NlY5pQXVzA==}
@@ -250,6 +250,11 @@ packages:
 
   '@forestrie/mcp-verify@0.7.0':
     resolution: {integrity: sha512-rKvMc966wqQdqxE5P1Pl3vkzBTibFjeTHqLGvnc9QRlhotZPqa1zQYgN72bTgp+vWyioRH/xW2109Au440dOzQ==}
+    engines: {node: '>=20.11.0'}
+    hasBin: true
+
+  '@forestrie/mcp-verify@0.8.1':
+    resolution: {integrity: sha512-X7XBNUZIUNmQSsSsWSqJiN9QzilKYGxKFiEx7Wh0wydKiYcvLUBwMZU086WkS3fIm2FEH3bh45HNbESxgscRdw==}
     engines: {node: '>=20.11.0'}
     hasBin: true
 
@@ -1241,9 +1246,9 @@ snapshots:
     dependencies:
       '@noble/curves': 1.9.7
 
-  '@forestrie/grant-builder@0.5.1':
+  '@forestrie/grant-builder@0.5.2':
     dependencies:
-      '@forestrie/encoding': 0.9.1
+      '@forestrie/encoding': 0.10.0
       '@noble/curves': 1.9.7
       '@noble/hashes': 1.8.0
 
@@ -1266,6 +1271,17 @@ snapshots:
       '@forestrie/encoding': 0.9.1
       '@forestrie/merklelog': 0.5.0
       '@forestrie/receipt-verify': 3.2.0
+      '@modelcontextprotocol/sdk': 1.30.0(zod@4.6.6)
+      zod: 4.6.6
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - supports-color
+
+  '@forestrie/mcp-verify@0.8.1':
+    dependencies:
+      '@forestrie/encoding': 0.10.0
+      '@forestrie/merklelog': 0.6.0
+      '@forestrie/receipt-verify': 3.3.0
       '@modelcontextprotocol/sdk': 1.30.0(zod@4.6.6)
       zod: 4.6.6
     transitivePeerDependencies:

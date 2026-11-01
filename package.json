@@ -87,14 +87,14 @@
     "@forestrie/delegation-cose": "0.5.0",
     "@forestrie/encoding": "0.10.0",
     "@forestrie/mcp-resolve": "0.4.1",
-    "@forestrie/mcp-verify": "0.7.0",
+    "@forestrie/mcp-verify": "0.8.1",
     "@forestrie/receipt-verify": "3.3.0",
     "@modelcontextprotocol/sdk": "1.30.0",
     "viem": "2.57.4",
     "zod": "^4.5.4"
   },
   "devDependencies": {
-    "@forestrie/grant-builder": "0.5.1",
+    "@forestrie/grant-builder": "0.5.2",
     "@types/node": "^22.14.0",
     "@x402/core": "2.28.0",
     "@x402/evm": "2.28.0",

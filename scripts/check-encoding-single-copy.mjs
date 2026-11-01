@@ -43,10 +43,14 @@ export const EXPECTED = {
   "@forestrie/encoding": "0.10.0",
   "@forestrie/receipt-verify": "3.3.0",
   "@forestrie/chain-rpc": "0.3.0",
-  "@forestrie/scrapi-client": "0.2.4",
+  "@forestrie/scrapi-client": "0.2.5",
   "@forestrie/merklelog": "0.6.0",
   "@forestrie/delegation-cose": "0.5.0",
-  "@forestrie/mcp-verify": "0.7.0",
+  "@forestrie/mcp-verify": "0.8.1",
+  // TODO(FOR-613): pin @forestrie/mcp-resolve 0.5.0 here, in package.json
+  // and in RESOLVE_VERSION (src/core/version.ts) once it is on npm. 0.4.1
+  // still pins encoding 0.9.1, receipt-verify 3.2.0 and scrapi-client
+  // 0.2.4, so this gate fails until then.
   "@forestrie/mcp-resolve": "0.4.1",
 };
 
