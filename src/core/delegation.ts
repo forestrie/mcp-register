@@ -25,7 +25,9 @@ import {
   buildDelegationCertificateEs256WithSigner,
   buildOnchainDelegationToBeSignedEs256,
   decodeDelegatedCoseKeyFromBytes,
+  formatDecimalUint64,
   normalizeEs256SignatureLowS,
+  parseDecimalUint64,
   parseDelegatedCoseKeyFromPayload,
   parseDelegationCertificate,
   type DelegationInput,
@@ -39,8 +41,15 @@ import { base64ToBytes, bytesToBase64 } from "./base64.js";
 import { sha256, toHex } from "./hex.js";
 import type { Es256Signer } from "./signer.js";
 
-/** Horizon default: effectively unbounded, as the CLI and thinker use. */
-export const DEFAULT_MMR_END = Number.MAX_SAFE_INTEGER;
+/**
+ * Horizon default: effectively unbounded, as the CLI and thinker use
+ * (2^53-1). MMR range bounds are uint64: the certificate carries them as
+ * CBOR major type 0, so they are `bigint` here, never `number`.
+ */
+export const DEFAULT_MMR_END = BigInt(Number.MAX_SAFE_INTEGER);
+
+/** The largest MMR range bound the wire allows: 2^64-1. */
+const MAX_UINT64 = (1n << 64n) - 1n;
 
 export class DelegationError extends Error {
   constructor(
@@ -55,11 +64,16 @@ export class DelegationError extends Error {
   }
 }
 
-/** One entry of `GET /api/logs/{logId}/pending-delegation`'s `entries`. */
+/**
+ * One entry of `GET /api/logs/{logId}/pending-delegation`'s `entries`.
+ * Range-bearing entries carry `mmrStart` / `mmrEnd` as canonical decimal
+ * strings (the coordinator's JSON contract); the standing entry has none.
+ */
 export interface PendingDelegationEntry {
   delegatedPublicKey?: string;
   suggestedTtlSeconds?: number;
-  mmrStart?: number;
+  mmrStart?: unknown;
+  mmrEnd?: unknown;
   voucher?: string;
   sealerId?: string;
   epoch?: number | string;
@@ -91,7 +105,9 @@ export function findStandingEntry(body: unknown): StandingEntry | undefined {
       "invalid_response",
       "pending-delegation `entries` is not an array",
     );
-  const standing = ((entries ?? []) as PendingDelegationEntry[]).find(
+  const list = (entries ?? []) as PendingDelegationEntry[];
+  for (const e of list) checkEntryRange(e);
+  const standing = list.find(
     (e) =>
       typeof e === "object" &&
       e !== null &&
@@ -125,10 +141,43 @@ export function findStandingEntry(body: unknown): StandingEntry | undefined {
   };
 }
 
-/** Verify the registrar's voucher for the standing key. Throws on any mismatch. */
+/**
+ * Every range bound the coordinator returns must be a canonical decimal
+ * string (`^(0|[1-9][0-9]*)$`, <= 2^64-1). A JSON number is a contract
+ * violation, not something to coerce: above 2^53 it has already lost
+ * precision in `JSON.parse`.
+ */
+function checkEntryRange(e: PendingDelegationEntry): void {
+  if (typeof e !== "object" || e === null) return;
+  for (const field of ["mmrStart", "mmrEnd"] as const) {
+    const v = e[field];
+    if (v === undefined) continue;
+    try {
+      parseDecimalUint64(v, field);
+    } catch (err) {
+      throw new DelegationError(
+        "invalid_response",
+        `pending-delegation entry ${field} is not a canonical decimal uint64 string: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+}
+
+/**
+ * How far past its claim 4 (notAfter) a voucher is still accepted, for
+ * clock skew against the custodian that signed it; the CLI's value.
+ */
+export const VOUCHER_CLOCK_SKEW_SECONDS = 300;
+
+/**
+ * Verify the registrar's voucher for the standing key. Throws on any
+ * mismatch, or when the voucher's notAfter has passed (`nowSeconds`, Unix
+ * seconds, defaults to the clock; skew of VOUCHER_CLOCK_SKEW_SECONDS).
+ */
 export async function checkVoucher(
   standing: StandingEntry,
   knownSealerKeyXY: Uint8Array,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
 ): Promise<void> {
   const pinned = parseRegistrarKeyXY(knownSealerKeyXY);
   if (pinned === null)
@@ -144,6 +193,7 @@ export async function checkVoucher(
       epoch: standing.epoch,
       publicKey: base64ToBytes(standing.delegatedPublicKey),
     },
+    nowSeconds - VOUCHER_CLOCK_SKEW_SECONDS,
   );
   if (!result.ok)
     throw new DelegationError(
@@ -152,11 +202,15 @@ export async function checkVoucher(
     );
 }
 
-/** The JSON body of `POST /api/delegations/certificate`. */
+/**
+ * The JSON body of `POST /api/delegations/certificate`. The range bounds
+ * are canonical decimal strings: the coordinator answers 400 to a JSON
+ * number, and a number loses precision above 2^53.
+ */
 export interface CertificateSubmission {
   logId: string;
-  mmrStart: number;
-  mmrEnd: number;
+  mmrStart: string;
+  mmrEnd: string;
   delegatedPublicKey: string;
   certificate: string;
   issuedAt: number;
@@ -167,7 +221,8 @@ export interface CertificateSubmission {
 export interface BuildDelegationInput {
   logId: string;
   standing: StandingEntry;
-  mmrEnd?: number;
+  /** Exclusive MMR end of the lease, uint64. mmrStart is fixed at 0. */
+  mmrEnd?: bigint;
   ttlSeconds?: number;
 }
 
@@ -180,12 +235,12 @@ export async function buildCertificateSubmission(
   input: BuildDelegationInput,
   signer: Es256Signer,
 ): Promise<CertificateSubmission> {
-  const mmrStart = 0;
+  const mmrStart = 0n;
   const mmrEnd = input.mmrEnd ?? DEFAULT_MMR_END;
-  if (!Number.isSafeInteger(mmrEnd) || mmrEnd < 0)
+  if (typeof mmrEnd !== "bigint" || mmrEnd < 0n || mmrEnd > MAX_UINT64)
     throw new DelegationError(
       "invalid_input",
-      `mmrEnd ${mmrEnd} is not a non-negative safe integer`,
+      `mmrEnd ${String(mmrEnd)} is not a uint64`,
     );
   const logIdHex32 = toHex(uuidToBytes(input.logId));
   const delegatedPublicKeyCbor = base64ToBytes(
@@ -228,8 +283,8 @@ export async function buildCertificateSubmission(
   const info = parseDelegationCertificate(certificate);
   return {
     logId: input.logId,
-    mmrStart,
-    mmrEnd,
+    mmrStart: formatDecimalUint64(mmrStart),
+    mmrEnd: formatDecimalUint64(mmrEnd),
     delegatedPublicKey: input.standing.delegatedPublicKey,
     certificate: bytesToBase64(certificate),
     issuedAt: info.issuedAt,

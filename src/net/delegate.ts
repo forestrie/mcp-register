@@ -42,7 +42,8 @@ export interface DelegateSealingInput {
   knownSealerKeyXY: Uint8Array;
   grantB64: string;
   grant: GrantView;
-  mmrEnd?: number;
+  /** Exclusive MMR end of the lease, uint64. */
+  mmrEnd?: bigint;
   ttlSeconds?: number;
   /** Polls of pending-delegation after a successful prepare. Default 5. */
   pollsAfterPrepare?: number;
@@ -57,7 +58,12 @@ export type DelegateSealingOutcome =
       logId: string;
       sealerId: string;
       epoch: number;
-      mmrEnd: number;
+      /**
+       * Exclusive MMR end of the lease as a canonical decimal string: the
+       * outcome is spread into the tool's JSON result, where a number
+       * would lose precision above 2^53.
+       */
+      mmrEnd: string;
       issuedAt: number;
       expiresAt: number;
       /** True when this call had to run prepare first. */

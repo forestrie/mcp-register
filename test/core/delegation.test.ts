@@ -56,8 +56,8 @@ describe("findStandingEntry", () => {
     expect(
       findStandingEntry({
         entries: [
-          { mmrStart: 0, mmrEnd: 100, delegatedPublicKey: "x" },
-          { suggestedTtlSeconds: 10, mmrStart: 5 },
+          { mmrStart: "0", mmrEnd: "100", delegatedPublicKey: "x" },
+          { suggestedTtlSeconds: 10, mmrStart: "5" },
         ],
       }),
     ).toBeUndefined();
@@ -65,9 +65,41 @@ describe("findStandingEntry", () => {
 
   it("finds the standing row among demand rows", () => {
     const got = findStandingEntry({
-      entries: [{ mmrStart: 0, mmrEnd: 9 }, entry],
+      entries: [{ mmrStart: "0", mmrEnd: "9" }, entry],
     });
     expect(got?.sealerId).toBe(coordinates.sealerId);
+  });
+
+  it("accepts range bounds above 2^53 as decimal strings", () => {
+    const got = findStandingEntry({
+      entries: [
+        { mmrStart: "0", mmrEnd: (2n ** 53n + 7n).toString() },
+        { mmrStart: "0", mmrEnd: "18446744073709551615" },
+        entry,
+      ],
+    });
+    expect(got?.sealerId).toBe(coordinates.sealerId);
+  });
+
+  it("rejects a range bound the coordinator sent as a JSON number", () => {
+    // The coordinator's JSON contract: canonical decimal strings only. A
+    // number above 2^53 has already been rounded by JSON.parse.
+    const body = JSON.parse(
+      '{"entries":[{"mmrStart":0,"mmrEnd":9007199254740999}]}',
+    ) as unknown;
+    expect(() => findStandingEntry(body)).toThrow(
+      expect.objectContaining({ code: "invalid_response" }),
+    );
+    for (const bad of [
+      { mmrStart: 0 },
+      { mmrEnd: 9 },
+      { mmrEnd: "007" },
+      { mmrEnd: "-1" },
+      { mmrEnd: "18446744073709551616" },
+    ])
+      expect(() => findStandingEntry({ entries: [bad, entry] })).toThrow(
+        expect.objectContaining({ code: "invalid_response" }),
+      );
   });
 
   it("accepts a numeric-string epoch", () => {
@@ -128,7 +160,7 @@ describe("checkVoucher", () => {
 });
 
 describe("buildCertificateSubmission", () => {
-  async function build(extra: { mmrEnd?: number; ttlSeconds?: number } = {}) {
+  async function build(extra: { mmrEnd?: bigint; ttlSeconds?: number } = {}) {
     const signer = await jwkSigner();
     return buildCertificateSubmission(
       { logId: coordinates.dataLogId, standing, ...extra },
@@ -139,16 +171,16 @@ describe("buildCertificateSubmission", () => {
   it("builds a certificate naming the log, the lease and the delegate key", async () => {
     const sub = await build();
     expect(sub.logId).toBe(coordinates.dataLogId);
-    expect(sub.mmrStart).toBe(0);
-    expect(sub.mmrEnd).toBe(DEFAULT_MMR_END);
-    expect(sub.mmrEnd).toBe(Number.MAX_SAFE_INTEGER);
+    expect(sub.mmrStart).toBe("0");
+    expect(DEFAULT_MMR_END).toBe(BigInt(Number.MAX_SAFE_INTEGER));
+    expect(sub.mmrEnd).toBe(String(Number.MAX_SAFE_INTEGER));
     expect(sub.delegatedPublicKey).toBe(standing.delegatedPublicKey);
 
     const cert = base64ToBytes(sub.certificate);
     const info = parseDelegationCertificate(cert);
     expect(info.logIdHex32).toBe(toHex(uuidToBytes(coordinates.dataLogId)));
-    expect(info.mmrStart).toBe(0);
-    expect(info.mmrEnd).toBe(Number.MAX_SAFE_INTEGER);
+    expect(info.mmrStart).toBe(0n);
+    expect(info.mmrEnd).toBe(DEFAULT_MMR_END);
     expect(info.issuedAt).toBe(sub.issuedAt);
     expect(info.expiresAt).toBe(sub.expiresAt);
     expect(sub.expiresAt - sub.issuedAt).toBe(coordinates.suggestedTtlSeconds);
@@ -172,25 +204,40 @@ describe("buildCertificateSubmission", () => {
   });
 
   it("honours mmrEnd and ttlSeconds", async () => {
-    const sub = await build({ mmrEnd: 1000, ttlSeconds: 60 });
-    expect(sub.mmrEnd).toBe(1000);
+    const sub = await build({ mmrEnd: 1000n, ttlSeconds: 60 });
+    expect(sub.mmrEnd).toBe("1000");
     expect(sub.expiresAt - sub.issuedAt).toBe(60);
     expect(
       parseDelegationCertificate(base64ToBytes(sub.certificate)).mmrEnd,
-    ).toBe(1000);
+    ).toBe(1000n);
   });
 
-  it("rejects a negative or unsafe mmrEnd", async () => {
-    await expect(build({ mmrEnd: -1 })).rejects.toMatchObject({
+  it("carries an mmrEnd above 2^53 exactly, as a decimal string", async () => {
+    // 2^53 + 7 is not a JS number (it rounds to 2^53 + 8).
+    const above = 2n ** 53n + 7n;
+    const sub = await build({ mmrEnd: above });
+    expect(sub.mmrEnd).toBe("9007199254740999");
+    expect(
+      parseDelegationCertificate(base64ToBytes(sub.certificate)).mmrEnd,
+    ).toBe(above);
+    const max = (1n << 64n) - 1n;
+    expect((await build({ mmrEnd: max })).mmrEnd).toBe("18446744073709551615");
+  });
+
+  it("rejects an mmrEnd outside uint64, or a number", async () => {
+    await expect(build({ mmrEnd: -1n })).rejects.toMatchObject({
       code: "invalid_input",
     });
-    await expect(build({ mmrEnd: 2 ** 60 })).rejects.toMatchObject({
+    await expect(build({ mmrEnd: 1n << 64n })).rejects.toMatchObject({
       code: "invalid_input",
     });
+    await expect(
+      build({ mmrEnd: 1000 as unknown as bigint }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
   });
 
   it("signs the on-chain delegation proof low-s with the log key", async () => {
-    const sub = await build({ mmrEnd: 4096 });
+    const sub = await build({ mmrEnd: 4096n });
     const sig = base64ToBytes(sub.onchainSignature);
     expect(sig).toHaveLength(64);
     expect(isLowS(sig)).toBe(true);
@@ -202,8 +249,8 @@ describe("buildCertificateSubmission", () => {
     );
     const tbs = buildOnchainDelegationToBeSignedEs256({
       logIdHex: toHex(uuidToBytes(coordinates.dataLogId)),
-      mmrStart: 0,
-      mmrEnd: 4096,
+      mmrStart: 0n,
+      mmrEnd: 4096n,
       delegatedKeyX: delegated.x,
       delegatedKeyY: delegated.y,
     });
