@@ -86,7 +86,7 @@
   "dependencies": {
     "@forestrie/delegation-cose": "0.5.0",
     "@forestrie/encoding": "0.10.0",
-    "@forestrie/mcp-resolve": "0.4.1",
+    "@forestrie/mcp-resolve": "0.5.0",
     "@forestrie/mcp-verify": "0.8.1",
     "@forestrie/receipt-verify": "3.3.0",
     "@modelcontextprotocol/sdk": "1.30.0",

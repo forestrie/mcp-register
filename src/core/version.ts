@@ -22,5 +22,4 @@ export const VERIFIER_VERSION = "0.8.1";
 /** Keep in sync with package.json#dependencies["@forestrie/mcp-resolve"] —
  *  the resolver this package composes with. Asserted by
  *  test/core/version.test.ts. */
-// TODO(FOR-613): 0.5.0 once @forestrie/mcp-resolve 0.5.0 is on npm.
-export const RESOLVE_VERSION = "0.4.1";
+export const RESOLVE_VERSION = "0.5.0";
