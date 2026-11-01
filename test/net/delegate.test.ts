@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { parseDelegationCertificate } from "@forestrie/delegation-cose";
 import { base64ToBytes, bytesToBase64 } from "../../src/core/base64.js";
 import { inspectGrant } from "../../src/core/grant.js";
 import { delegateSealing } from "../../src/net/delegate.js";
@@ -74,7 +75,9 @@ describe("delegateSealing", () => {
     expect(post.headers["content-type"]).toBe("application/json");
     const body = JSON.parse(new TextDecoder().decode(post.body));
     expect(body.logId).toBe(c.dataLogId);
-    expect(body.mmrStart).toBe(0);
+    // Range bounds are canonical decimal strings, never JSON numbers.
+    expect(body.mmrStart).toBe("0");
+    expect(body.mmrEnd).toBe(String(Number.MAX_SAFE_INTEGER));
     expect(Object.keys(body).sort()).toEqual(
       [
         "certificate",
@@ -211,5 +214,50 @@ describe("delegateSealing", () => {
       kind: "problem",
       stage: "pending_delegation",
     });
+  });
+
+  it("puts an mmrEnd above 2^53 on the wire as its exact decimal string", async () => {
+    // 2^53 + 7 is not a JS number (it rounds to 2^53 + 8); the coordinator
+    // answers 400 to a JSON number for any range bound.
+    const above = 2n ** 53n + 7n;
+    const { outcome, replay } = await run(
+      [ex("pending-standing"), ex("certificate-200")],
+      { mmrEnd: above },
+    );
+    const post = replay.callsTo("POST", certUrl)[0]!;
+    const text = new TextDecoder().decode(post.body);
+    expect(text).toContain('"mmrStart":"0"');
+    expect(text).toContain('"mmrEnd":"9007199254740999"');
+    const body = JSON.parse(text);
+    expect(
+      parseDelegationCertificate(base64ToBytes(body.certificate)).mmrEnd,
+    ).toBe(above);
+    // The outcome is spread into the tool's JSON result: a string, exact.
+    expect(outcome).toMatchObject({
+      kind: "delegated",
+      mmrEnd: "9007199254740999",
+    });
+    expect(() => JSON.stringify(outcome)).not.toThrow();
+  });
+
+  it("rejects a pending-delegation answer whose range bound is a JSON number", async () => {
+    const standing = JSON.parse(
+      new TextDecoder().decode(ex("pending-standing").body),
+    ) as { entries: unknown[] };
+    const numeric: Exchange = {
+      ...ex("pending-standing"),
+      body: new TextEncoder().encode(
+        JSON.stringify({
+          entries: [{ mmrStart: 0, mmrEnd: 4096 }, ...standing.entries],
+        }),
+      ),
+    };
+    const { outcome, replay } = await run([numeric]);
+    expect(outcome).toMatchObject({
+      kind: "problem",
+      stage: "pending_delegation",
+      message: expect.stringContaining("decimal"),
+    });
+    expect(replay.callsTo("POST", certUrl)).toHaveLength(0);
   });
 });

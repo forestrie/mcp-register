@@ -12,14 +12,14 @@
  */
 
 /** Keep in sync with package.json#version. Asserted by test/node/mcp-smoke. */
-export const PACKAGE_VERSION = "0.2.1";
+export const PACKAGE_VERSION = "0.3.0";
 
 /** Keep in sync with package.json#dependencies["@forestrie/mcp-verify"] — the
  *  verifier this package composes with. Asserted by
  *  test/core/version.test.ts. */
-export const VERIFIER_VERSION = "0.7.0";
+export const VERIFIER_VERSION = "0.8.1";
 
 /** Keep in sync with package.json#dependencies["@forestrie/mcp-resolve"] —
  *  the resolver this package composes with. Asserted by
  *  test/core/version.test.ts. */
-export const RESOLVE_VERSION = "0.4.1";
+export const RESOLVE_VERSION = "0.5.0";
